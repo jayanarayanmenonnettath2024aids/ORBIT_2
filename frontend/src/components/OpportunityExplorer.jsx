@@ -186,52 +186,80 @@ function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
                   )}
                 </div>
 
-                {/* Expanded Analysis */}
+                {/* Expanded Analysis - ENTERPRISE PREMIUM UI */}
                 {analysis && isExpanded && (
-                  <div className="analysis-details">
-                    {/* Simple Explanation */}
-                    <div className="analysis-section">
-                      <h5>📋 Summary</h5>
-                      <p className="explanation">{analysis.explanation_simple}</p>
+                  <div className="analysis-details-premium">
+                    {/* Hero Section with Status & Confidence */}
+                    <div className="analysis-hero">
+                      <div className="analysis-hero-content">
+                        <div className="status-indicator">
+                          {getStatusBadge(analysis.eligibility_status)}
+                        </div>
+                        <div className={`confidence-meter confidence-${getConfidenceColor(analysis.confidence_score)}`}>
+                          <span className="confidence-value">{analysis.confidence_score}%</span>
+                          <div className="confidence-bar">
+                            <div 
+                              className="confidence-fill" 
+                              style={{ width: `${analysis.confidence_score}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="analysis-summary-text">
+                        <h4>Analysis Summary</h4>
+                        <p>{analysis.explanation_simple}</p>
+                      </div>
                     </div>
 
-                    {/* What You Have */}
-                    {analysis.reasons_met && analysis.reasons_met.length > 0 && (
-                      <div className="analysis-section">
-                        <h5>✅ What You Have</h5>
-                        <ul className="reasons-list reasons-met">
-                          {analysis.reasons_met.map((reason, idx) => (
-                            <li key={idx}>
-                              <CheckCircle className="icon-sm" />
-                              {reason}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                    {/* Analysis Grid - Strengths vs Gaps */}
+                    <div className="analysis-grid">
+                      {/* What You Have */}
+                      {analysis.reasons_met && analysis.reasons_met.length > 0 && (
+                        <div className="analysis-card analysis-card-success">
+                          <div className="card-header">
+                            <CheckCircle className="card-icon" />
+                            <h5>What You Have</h5>
+                          </div>
+                          <ul className="reasons-list">
+                            {analysis.reasons_met.map((reason, idx) => (
+                              <li key={idx}>
+                                <span className="bullet">✓</span>
+                                {reason}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
-                    {/* What's Missing */}
-                    {analysis.reasons_not_met && analysis.reasons_not_met.length > 0 && (
-                      <div className="analysis-section">
-                        <h5>❌ What's Missing</h5>
-                        <ul className="reasons-list reasons-not-met">
-                          {analysis.reasons_not_met.map((reason, idx) => (
-                            <li key={idx}>
-                              <AlertCircle className="icon-sm" />
-                              {reason}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                      {/* What's Missing */}
+                      {analysis.reasons_not_met && analysis.reasons_not_met.length > 0 && (
+                        <div className="analysis-card analysis-card-warning">
+                          <div className="card-header">
+                            <AlertCircle className="card-icon" />
+                            <h5>What's Missing</h5>
+                          </div>
+                          <ul className="reasons-list">
+                            {analysis.reasons_not_met.map((reason, idx) => (
+                              <li key={idx}>
+                                <span className="bullet">!</span>
+                                {reason}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
 
                     {/* Skills to Develop */}
                     {analysis.missing_skills && analysis.missing_skills.length > 0 && (
-                      <div className="analysis-section">
-                        <h5>🎯 Skills to Develop</h5>
-                        <div className="skill-tags">
+                      <div className="analysis-section-premium">
+                        <div className="section-header">
+                          <div className="section-icon">🎯</div>
+                          <h5>Skills to Develop</h5>
+                        </div>
+                        <div className="skill-tags-premium">
                           {analysis.missing_skills.map((skill, idx) => (
-                            <span key={idx} className="skill-tag skill-missing">
+                            <span key={idx} className="skill-chip">
                               {skill}
                             </span>
                           ))}
@@ -239,14 +267,19 @@ function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
                       </div>
                     )}
 
-                    {/* Next Steps (CORE DIFFERENTIATOR) */}
+                    {/* Next Steps Timeline - PREMIUM FEATURE */}
                     {analysis.next_steps && analysis.next_steps.length > 0 && (
-                      <div className="analysis-section next-steps-section">
-                        <h5>🚀 Your Path Forward</h5>
-                        <p className="next-steps-intro">
-                          Here's how you can become eligible:
-                        </p>
-                        <div className="next-steps-list">
+                      <div className="next-steps-premium">
+                        <div className="section-header-large">
+                          <div className="section-icon-large">🚀</div>
+                          <div>
+                            <h4>Your Path Forward</h4>
+                            <p className="section-subtitle">
+                              Follow these steps to become eligible
+                            </p>
+                          </div>
+                        </div>
+                        <div className="steps-timeline">
                           {analysis.next_steps.map((step, idx) => (
                             <div key={idx} className="next-step-card">
                               <div className="step-number">{idx + 1}</div>

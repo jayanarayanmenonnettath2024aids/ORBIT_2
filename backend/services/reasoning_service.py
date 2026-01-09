@@ -182,65 +182,93 @@ class ReasoningService:
         # Build prompt using template
         prompt = self._build_reasoning_prompt(profile_data, opportunity)
         
-        try:
-            print(f"Calling Gemini API for reasoning...")
-            
-            # Call Gemini API
-            response = self.model.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.7,
-                    "max_output_tokens": 2048,
-                }
-            )
-            
-            # Rotate API key for load balancing
-            self._rotate_key()
-            
-            print(f"Gemini API responded successfully")
-            
-            # Parse JSON response
-            response_text = response.text.strip()
-            
-            if not response_text:
-                print("Warning: Empty response from Gemini")
-                return self._create_fallback_analysis()
-            
-            # Remove markdown code blocks if present
-            if response_text.startswith('```'):
-                response_text = re.sub(r'^```(?:json)?\n', '', response_text)
-                response_text = re.sub(r'\n```$', '', response_text)
-            
-            # Remove any trailing commas before closing braces/brackets
-            response_text = re.sub(r',\s*}', '}', response_text)
-            response_text = re.sub(r',\s*]', ']', response_text)
-            
-            # Fix common JSON issues
-            response_text = response_text.replace('\n', ' ')
-            
-            print(f"Parsing JSON response (length: {len(response_text)})")
-            
-            # Parse JSON
-            analysis = json.loads(response_text)
-            
-            # Validate structure
-            self._validate_analysis_structure(analysis)
-            
-            print(f"Successfully parsed and validated analysis")
-            
-            return analysis
-            
-        except json.JSONDecodeError as e:
-            print(f"JSON parsing failed: {e}")
-            print(f"Response was: {response_text[:500] if 'response_text' in locals() else 'No response'}")
-            # Return fallback response
-            return self._create_fallback_analysis()
+        # Retry logic for robustness
+        max_retries = 3
+        last_error = None
         
-        except Exception as e:
-            print(f"Gemini reasoning failed: {e}")
-            import traceback
-            traceback.print_exc()
-            return self._create_fallback_analysis()
+        for attempt in range(max_retries):
+            try:
+                print(f"🤖 Calling Gemini API for eligibility analysis (attempt {attempt + 1}/{max_retries})...")
+                
+                # Call Gemini API with stricter config for JSON
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config={
+                        "temperature": 0.3,  # Lower temp for more consistent JSON
+                        "max_output_tokens": 2048,
+                    }
+                )
+                
+                # Rotate API key for load balancing
+                self._rotate_key()
+                
+                print(f"✓ Gemini API responded (length: {len(response.text)} chars)")
+                
+                # Parse JSON response
+                response_text = response.text.strip()
+                
+                if not response_text:
+                    raise ValueError("Empty response from Gemini")
+                
+                # Aggressive JSON cleanup
+                original_text = response_text
+                
+                # Remove markdown code blocks
+                if '```' in response_text:
+                    response_text = re.sub(r'^```(?:json)?\s*\n?', '', response_text, flags=re.MULTILINE)
+                    response_text = re.sub(r'\n?```\s*$', '', response_text, flags=re.MULTILINE)
+                
+                # Remove trailing commas (common JSON error)
+                response_text = re.sub(r',\s*([}\]])', r'\1', response_text)
+                
+                # Fix newlines inside strings
+                response_text = response_text.replace('\n', ' ')
+                
+                # Remove any non-JSON text before/after
+                json_start = response_text.find('{')
+                json_end = response_text.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    response_text = response_text[json_start:json_end]
+                
+                print(f"📄 Cleaned JSON (length: {len(response_text)} chars)")
+                
+                # Parse JSON
+                analysis = json.loads(response_text)
+                
+                # Validate structure
+                self._validate_analysis_structure(analysis)
+                
+                print(f"✓ Successfully parsed and validated analysis")
+                print(f"   Status: {analysis.get('eligibility_status', 'Unknown')}")
+                print(f"   Confidence: {analysis.get('confidence_score', 0)}%")
+                
+                return analysis
+                
+            except json.JSONDecodeError as e:
+                last_error = f"JSON parsing failed: {e}"
+                print(f"❌ {last_error}")
+                print(f"   Raw response (first 300 chars): {original_text[:300] if 'original_text' in locals() else response_text[:300]}")
+                
+                if attempt < max_retries - 1:
+                    print(f"⏳ Retrying with different API key...")
+                    self._rotate_key()  # Try different key
+                    continue
+            
+            except Exception as e:
+                last_error = f"Gemini API error: {str(e)}"
+                print(f"❌ {last_error}")
+                
+                if attempt < max_retries - 1:
+                    print(f"⏳ Retrying...")
+                    self._rotate_key()
+                    continue
+        
+        # All retries failed
+        print(f"\n⚠️  All {max_retries} attempts failed. Last error: {last_error}")
+        print(f"📋 Using intelligent fallback analysis instead...")
+        import traceback
+        traceback.print_exc()
+        return self._create_fallback_analysis()
     
     
     def _build_reasoning_prompt(self, profile_data: Dict, opportunity: Dict) -> str:
@@ -375,10 +403,11 @@ OUTPUT ONLY THE JSON. DO NOT ADD ANY EXTRA TEXT BEFORE OR AFTER THE JSON.
     
     def _create_fallback_analysis(self) -> Dict:
         """
-        Create fallback analysis when Gemini fails
+        Create intelligent fallback analysis when Gemini fails
+        Provides reasonable default guidance
         """
         return {
-            "eligibility_status": "Partially Eligible",
+            "eligibility_status": "Review Required",
             "reasons_met": [
                 "Your profile shows potential and enthusiasm"
             ],
