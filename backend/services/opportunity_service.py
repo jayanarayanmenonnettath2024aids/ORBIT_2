@@ -112,16 +112,18 @@ class OpportunityService:
         query_lower = query.lower()
         
         if 'hackathon' in query_lower:
-            # Focus on platforms that host hackathons
+            # Focus on platforms that host hackathons with active listings
             platforms = ['(site:unstop.com OR site:devfolio.co OR site:mlh.io OR site:hackerearth.com)']
+            query += " (register OR apply OR 'last date' OR deadline OR 'open for registration')"
             # Add relevant keywords
             if 'ai' in query_lower or 'ml' in query_lower or 'machine learning' in query_lower:
                 query += " artificial intelligence machine learning"
         elif 'internship' in query_lower:
             platforms = ['(site:linkedin.com OR site:internshala.com OR site:unstop.com)']
-            query += " apply"
+            query += " (apply OR 'last date' OR deadline OR 'summer 2026' OR 'applications open')"
         elif 'scholarship' in query_lower or 'fellowship' in query_lower:
             platforms = ['(site:buddy4study.com OR site:scholars4dev.com)']
+            query += " (apply OR deadline OR 2026)"
         
         # Add context for student opportunities
         if 'student' not in query_lower and 'college' not in query_lower:
