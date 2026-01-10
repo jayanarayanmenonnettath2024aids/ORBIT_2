@@ -348,7 +348,7 @@ CRITICAL RULES:
     
     def _evaluate_resume(self, resume_text, profile_data):
         """
-        Evaluate resume and provide summary, grade, and feedback
+        Evaluate resume and provide customized, detailed summary, grade, and feedback
         
         Args:
             resume_text: Raw resume text
@@ -357,36 +357,60 @@ CRITICAL RULES:
         Returns:
             Dictionary with summary, grade, strengths, improvements
         """
-        prompt = f"""You are an expert career counselor evaluating a student's resume.
+        # Extract key profile details for context
+        edu = profile_data.get('education', {})
+        skills = profile_data.get('skills', {})
+        experience = profile_data.get('experience', [])
+        achievements = profile_data.get('achievements', [])
+        
+        degree = edu.get('degree', 'Unknown')
+        major = edu.get('major', 'Unknown')
+        year = edu.get('year', 'Unknown')
+        cgpa = edu.get('cgpa_or_percentage', 'Not mentioned')
+        
+        prog_langs = ', '.join(skills.get('programming_languages', [])) or 'None listed'
+        frameworks = ', '.join(skills.get('frameworks', [])) or 'None listed'
+        exp_count = len(experience)
+        achievement_count = len(achievements)
+        
+        prompt = f"""You are an expert career counselor evaluating a SPECIFIC student's resume. Provide PERSONALIZED feedback based on their actual profile.
 
-RESUME:
+STUDENT PROFILE:
+- Education: {year} {degree} in {major}
+- CGPA: {cgpa}
+- Programming Languages: {prog_langs}
+- Frameworks/Tools: {frameworks}
+- Projects/Experience: {exp_count} entries
+- Achievements: {achievement_count} items
+
+FULL RESUME TEXT:
 {resume_text}
 
-Provide an evaluation in this EXACT JSON format:
+Provide a CUSTOMIZED evaluation in this EXACT JSON format:
 {{
   "grade": "A+",
-  "summary": "2-3 sentence overview of the candidate's profile and readiness",
-  "strengths": ["Strength 1", "Strength 2", "Strength 3"],
-  "improvements": ["Area to improve 1", "Area to improve 2"]
+  "summary": "Write a SPECIFIC 2-3 sentence summary mentioning their actual degree, major, year, key skills, and experience level. Make it personal, not generic.",
+  "strengths": ["Specific strength 1 with actual details", "Specific strength 2 with actual details", "Specific strength 3 with actual details"],
+  "improvements": ["Specific actionable improvement 1", "Specific actionable improvement 2"]
 }}
 
-GRADING SCALE:
-- A+ (95-100): Exceptional resume, ready for top opportunities
-- A (90-94): Strong resume with impressive achievements
-- A- (85-89): Very good resume, competitive for most opportunities
-- B+ (80-84): Good resume, could use some enhancements
-- B (75-79): Decent resume, needs improvement in key areas
-- B- (70-74): Average resume, significant improvements needed
-- C+ (65-69): Below average, major gaps to address
-- C or below: Needs substantial work
+GRADING CRITERIA (Be strict and realistic):
+- A+ (95-100): Exceptional - Multiple impressive projects, strong CGPA (>8.5), diverse tech stack, notable achievements, internship experience
+- A (90-94): Excellent - Good projects with measurable impact, strong academics (>8.0), solid skills, some achievements
+- A- (85-89): Very Good - 2-3 quality projects, good CGPA (>7.5), relevant skills, clear career direction
+- B+ (80-84): Good - 1-2 decent projects, average+ CGPA (>7.0), some relevant skills, shows initiative
+- B (75-79): Decent - Basic projects, average CGPA (>6.5), limited skills, needs more experience
+- B- (70-74): Below Average - Minimal projects, weak CGPA (<6.5), few skills, needs significant work
+- C+ (65-69): Weak - Almost no practical experience, poor academics, very limited skills
+- C or below (60-64): Needs Major Improvement - No projects, weak foundation, must rebuild from basics
 
-EVALUATE BASED ON:
-1. Education quality and relevance
-2. Technical skills breadth and depth
-3. Project experience and impact
-4. Achievements and certifications
-5. Leadership and extracurriculars
-6. Resume clarity and presentation
+IMPORTANT:
+1. Mention their ACTUAL degree, major, and year in the summary (e.g., "As a second-year B.Tech Computer Science student...")
+2. Reference their SPECIFIC skills in strengths (e.g., "Strong Python and React.js expertise shown in projects")
+3. Call out ACTUAL gaps (e.g., "Add CI/CD experience" not just "Add more experience")
+4. Be honest about the grade - most student resumes are B/B+, not A+
+5. If CGPA is below 7.0, mention academics need improvement
+6. If no projects, that's a critical gap - state it clearly
 
 Return ONLY the JSON, no extra text."""
         

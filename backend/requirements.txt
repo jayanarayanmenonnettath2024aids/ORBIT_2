@@ -3,6 +3,7 @@
 # Web Framework
 Flask==3.0.0
 flask-cors==4.0.0
+gunicorn==21.2.0
 
 # Google APIs
 google-generativeai==0.3.2

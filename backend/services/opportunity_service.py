@@ -186,6 +186,7 @@ class OpportunityService:
     def _enhance_query(self, query, opportunity_type=None):
         """
         Enhance search query with context, date filtering, and relevance
+        Focuses on 2026 opportunities only
         
         Args:
             query: Base query
@@ -198,8 +199,11 @@ class OpportunityService:
         if opportunity_type:
             query = f"{opportunity_type} {query}"
         
-        # Add temporal context for relevance (2026)
+        # CRITICAL: Force 2026 results only
         query += " 2026"
+        
+        # Exclude old years explicitly
+        query += " -2025 -2024 -2023"
         
         # Add platform context for better results with more specific targeting
         platforms = []
@@ -207,27 +211,34 @@ class OpportunityService:
         
         if 'hackathon' in query_lower:
             # Focus on platforms that host hackathons with active listings
-            platforms = ['(site:unstop.com OR site:devfolio.co OR site:mlh.io OR site:hackerearth.com)']
-            query += " (register OR apply OR 'last date' OR deadline OR 'open for registration')"
+            platforms = ['(site:unstop.com OR site:devfolio.co OR site:mlh.io OR site:hackerearth.com OR site:devpost.com)']
+            query += " (register OR apply OR 'last date' OR deadline OR 'open for registration' OR 'registration open')"
             # Add relevant keywords
             if 'ai' in query_lower or 'ml' in query_lower or 'machine learning' in query_lower:
                 query += " artificial intelligence machine learning"
         elif 'internship' in query_lower:
-            platforms = ['(site:linkedin.com OR site:internshala.com OR site:unstop.com)']
-            query += " (apply OR 'last date' OR deadline OR 'summer 2026' OR 'applications open')"
+            platforms = ['(site:linkedin.com OR site:internshala.com OR site:unstop.com OR site:indeed.com)']
+            query += " (apply OR 'last date' OR deadline OR 'summer 2026' OR 'applications open' OR 'now hiring')"
         elif 'scholarship' in query_lower or 'fellowship' in query_lower:
-            platforms = ['(site:buddy4study.com OR site:scholars4dev.com)']
-            query += " (apply OR deadline OR 2026)"
+            platforms = ['(site:buddy4study.com OR site:scholars4dev.com OR site:opportunitiesforafricans.com)']
+            query += " (apply OR deadline OR 2026 OR 'applications open')"
         
         # Add context for student opportunities
         if 'student' not in query_lower and 'college' not in query_lower:
             query += " students college"
         
-        # Add India context if not present
-        if 'india' not in query_lower:
+        # Add India context if not present (can be modified based on location)
+        if 'india' not in query_lower and 'international' not in query_lower:
             query += " India"
         
         # Add deadline/registration keywords for active opportunities
+        query += " (upcoming OR 'coming soon' OR 'registration open' OR 'apply now')"
+        
+        # Add platform-specific search if applicable
+        if platforms:
+            query += f" {platforms[0]}"
+        
+        return query
         query += " (register OR apply OR deadline OR 'last date')"
         
         # Add year context for recent opportunities
@@ -259,23 +270,29 @@ class OpportunityService:
             return self._get_mock_search_results(query)
         
         try:
-            # Focus on upcoming events, not recently updated old events
+            # Focus on recent content - pages indexed in last 3 months
+            # This catches newly posted events for 2026
             params = {
                 'key': self.search_api_key,
                 'cx': self.search_engine_id,
                 'q': query,
                 'num': num_results,
-                'dateRestrict': 'm6',  # Last 6 months to catch future events posted early
-                'sort': 'date:d:s'  # Sort by date descending
+                'dateRestrict': 'm3',  # Last 3 months - more recent content
+                'sort': 'date:d:s'  # Sort by date descending (newest first)
             }
+            
+            print(f"🔍 Searching Google: {query[:100]}...")
             
             response = requests.get(self.search_url, params=params, timeout=10)
             response.raise_for_status()
             
-            return response.json()
+            result = response.json()
+            print(f"✅ Found {len(result.get('items', []))} results")
+            
+            return result
             
         except requests.RequestException as e:
-            print(f"Google Search API error: {e}")
+            print(f"❌ Google Search API error: {e}")
             # Return mock data as fallback
             return self._get_mock_search_results(query)
     
@@ -283,6 +300,7 @@ class OpportunityService:
     def _parse_search_results(self, search_results, opportunity_type=None):
         """
         Parse Google search results into structured opportunities
+        Enhanced to show accurate, fresh information
         
         Args:
             search_results: Raw Google API response
@@ -294,54 +312,72 @@ class OpportunityService:
         opportunities = []
         
         items = search_results.get('items', [])
+        print(f"📄 Parsing {len(items)} search results...")
         
-        for item in items:
+        for idx, item in enumerate(items, 1):
             title = item.get('title', '')
             link = item.get('link', '')
             snippet = item.get('snippet', '')
             
-            title_lower = title.lower()
-            snippet_lower = snippet.lower()
-            combined = f"{title_lower} {snippet_lower}"
+            # Get the actual page metadata if available
+            pagemap = item.get('pagemap', {})
+            metatags = pagemap.get('metatags', [{}])[0]
             
-            # Skip old 2025 events that have closed
-            if '2025' in combined:
-                closed_keywords = ['closed', 'ended', 'concluded', 'completed', 'finished', 'over']
-                if any(word in combined for word in closed_keywords):
-                    continue
-                # Skip if only 2025 and no 2026 mention
+            # Use meta description if available (more accurate than snippet)
+            description = metatags.get('og:description') or metatags.get('description') or snippet
+            
+            title_lower = title.lower()
+            description_lower = description.lower()
+            combined = f"{title_lower} {description_lower}"
+            
+            # STRICTER 2026 filtering - must mention 2026 OR be from a listing site with active content
+            current_year = datetime.now().year
+            
+            # Skip if explicitly mentions old years and not 2026
+            if '2025' in combined or '2024' in combined or '2023' in combined:
                 if '2026' not in combined:
+                    print(f"⏭️  Skipping #{idx}: Old year detected ({title[:50]}...)")
                     continue
+            
+            # Skip closed events
+            closed_keywords = ['closed', 'ended', 'concluded', 'completed', 'finished', 'over', 'winners announced']
+            if any(word in combined for word in closed_keywords):
+                print(f"⏭️  Skipping #{idx}: Closed event ({title[:50]}...)")
+                continue
             
             # Infer type if not provided
-            inferred_type = opportunity_type or self._infer_opportunity_type(title, snippet)
+            inferred_type = opportunity_type or self._infer_opportunity_type(title, description)
             
             # Type-based filtering: skip mismatched types
             if opportunity_type:
                 # If searching for hackathon, skip internships
                 if opportunity_type.lower() == 'hackathon':
-                    internship_keywords = ['internship', 'intern ', 'summer intern', 'winter intern']
-                    if any(kw in combined for kw in internship_keywords):
+                    internship_keywords = ['internship', 'intern position', 'summer intern', 'winter intern', 'intern opening']
+                    if any(kw in combined for kw in internship_keywords) and 'hackathon' not in combined:
+                        print(f"⏭️  Skipping #{idx}: Type mismatch (looking for hackathon, found internship)")
                         continue
                 # If searching for internship, skip hackathons
                 elif 'internship' in opportunity_type.lower():
                     hackathon_keywords = ['hackathon', 'hack ', 'coding competition', 'programming contest']
                     if any(kw in combined for kw in hackathon_keywords) and 'internship' not in combined:
+                        print(f"⏭️  Skipping #{idx}: Type mismatch (looking for internship, found hackathon)")
                         continue
             
             # Extract opportunity details
             opportunity = {
                 'title': title,
                 'link': link,
-                'snippet': snippet,
-                'organizer': self._extract_organizer(title, snippet),
-                'eligibility_text': self._extract_eligibility(snippet),
-                'deadline': self._extract_deadline(snippet),
+                'snippet': description[:300],  # Use better description, limit length
+                'organizer': self._extract_organizer(title, description),
+                'eligibility_text': self._extract_eligibility(description),
+                'deadline': self._extract_deadline(description),
                 'type': inferred_type,
                 'source': 'google_search',
-                'year': '2026' if '2026' in combined else '2025'
+                'year': '2026' if '2026' in combined else str(current_year),
+                'page_date': metatags.get('article:published_time', '')  # Track when page was published
             }
             
+            print(f"✅ #{idx}: {title[:60]}... ({inferred_type}, {opportunity['year']})")
             opportunities.append(opportunity)
         
         # Advanced sorting: prioritize 2026, open registrations, and type match
@@ -350,6 +386,8 @@ class OpportunityService:
             'register' in x['snippet'].lower() or 'apply' in x['snippet'].lower() or 'open' in x['snippet'].lower(),  # Open registrations
             x.get('type', '') == opportunity_type if opportunity_type else True  # Type match
         ), reverse=True)
+        
+        print(f"🎯 Returning {len(opportunities)} filtered opportunities")
         
         return opportunities
     

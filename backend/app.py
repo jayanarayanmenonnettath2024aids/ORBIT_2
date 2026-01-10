@@ -556,4 +556,7 @@ if __name__ == '__main__':
     Environment: {'Development' if debug else 'Production'}
     """)
     
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    # Disable auto-reload in production, enable only in development
+    # This fixes the issue where resume parsing gets killed by Flask restarts
+    use_reloader = debug  # Only reload in development
+    app.run(host='0.0.0.0', port=port, debug=debug, use_reloader=use_reloader)
