@@ -9,6 +9,37 @@ const api = axios.create({
   },
 });
 
+// Add token to requests if available
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('session_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// ============================================================================
+// AUTHENTICATION API
+// ============================================================================
+
+export const loginUser = async (email, password) => {
+  const response = await api.post('/auth/login', { email, password });
+  return response.data;
+};
+
+export const registerUser = async (email, password, name) => {
+  const response = await api.post('/auth/register', { email, password, name });
+  return response.data;
+};
+
+export const logoutUser = async () => {
+  const response = await api.post('/auth/logout');
+  localStorage.removeItem('session_token');
+  localStorage.removeItem('user_id');
+  localStorage.removeItem('user_email');
+  return response.data;
+};
+
 // ============================================================================
 // PROFILE API
 // ============================================================================
