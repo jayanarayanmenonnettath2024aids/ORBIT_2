@@ -5,6 +5,7 @@ Main Flask application for AI-Powered Opportunity Intelligence System
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
+import traceback
 from dotenv import load_dotenv
 
 # Import services
@@ -70,7 +71,8 @@ def register():
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         print(f"❌ Registration error: {e}")
-        return jsonify({'error': 'Registration failed'}), 500
+        print(f"❌ Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Registration failed: {str(e)}'}), 500
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
@@ -197,7 +199,8 @@ def parse_resume():
         
     except Exception as e:
         print(f"❌ Parse resume error: {e}")
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to parse resume: {str(e)}'}), 500
 
 
 @app.route('/api/profile/create', methods=['POST'])
