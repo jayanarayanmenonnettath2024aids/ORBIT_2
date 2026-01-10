@@ -30,13 +30,13 @@ class OpportunityService:
     
     def generate_personalized_suggestions(self, profile_data):
         """
-        Generate personalized search suggestions based on user profile
+        Generate personalized search suggestions for ALL branches
         
         Args:
             profile_data: Student profile dictionary
         
         Returns:
-            List of suggested search queries
+            List of suggested search queries for all engineering/non-engineering students
         """
         suggestions = []
         
@@ -46,46 +46,74 @@ class OpportunityService:
         interests = profile_data.get('interests', [])
         education = profile_data.get('education', {})
         major = education.get('major', '').lower()
+        degree = education.get('degree', '').lower()
         
-        # AI/ML focused suggestions
+        # Join all skills for easier matching
+        all_skills = ' '.join(tech_skills).lower() if tech_skills else ''
+        all_interests = ' '.join(interests).lower() if interests else ''
+        combined_text = f"{major} {degree} {all_skills} {all_interests}"
+        
+        # === COMPUTER SCIENCE & IT ===
+        cs_keywords = ['computer', 'software', 'it', 'information technology']
+        if any(kw in combined_text for kw in cs_keywords):
+            suggestions.append('Software development internship 2026')
+            suggestions.append('Tech hackathon 2026')
+        
+        # === AI/ML/DATA SCIENCE ===
         ai_keywords = ['machine learning', 'ai', 'artificial intelligence', 'data science', 'deep learning']
-        if any(keyword in ' '.join(tech_skills).lower() for keyword in ai_keywords) or 'ai' in major or 'data' in major:
-            suggestions.extend([
-                'AI hackathon 2026',
-                'Machine Learning competition',
-                'Data Science internship 2026'
-            ])
+        if any(kw in combined_text for kw in ai_keywords):
+            suggestions.append('AI hackathon 2026')
+            suggestions.append('Data Science competition 2026')
         
-        # Web development suggestions
-        web_keywords = ['react', 'node', 'javascript', 'frontend', 'backend', 'fullstack', 'web']
-        if any(keyword in ' '.join(tech_skills).lower() for keyword in web_keywords):
-            suggestions.extend([
-                'Web development hackathon 2026',
-                'Full stack developer internship',
-                'Frontend development competition'
-            ])
+        # === MECHANICAL ENGINEERING ===
+        mech_keywords = ['mechanical', 'automobile', 'automotive', 'manufacturing', 'cad', 'solidworks', 'catia']
+        if any(kw in combined_text for kw in mech_keywords):
+            suggestions.append('Mechanical engineering internship 2026')
+            suggestions.append('Product design competition')
+            suggestions.append('Automotive hackathon')
         
-        # Cloud/DevOps suggestions
-        cloud_keywords = ['aws', 'azure', 'gcp', 'docker', 'kubernetes', 'cloud']
-        if any(keyword in ' '.join(tech_skills).lower() for keyword in cloud_keywords):
-            suggestions.extend([
-                'Cloud computing hackathon',
-                'DevOps internship 2026'
-            ])
+        # === ELECTRICAL/ELECTRONICS ===
+        eee_keywords = ['electrical', 'electronics', 'ece', 'eee', 'circuit', 'vlsi', 'embedded', 'iot']
+        if any(kw in combined_text for kw in eee_keywords):
+            suggestions.append('Electronics project competition 2026')
+            suggestions.append('IoT hackathon 2026')
+            suggestions.append('Hardware engineering internship')
         
-        # Blockchain/Web3 suggestions
-        blockchain_keywords = ['blockchain', 'web3', 'ethereum', 'solidity']
-        if any(keyword in ' '.join(tech_skills).lower() for keyword in blockchain_keywords):
-            suggestions.extend([
-                'Blockchain hackathon 2026',
-                'Web3 developer competition'
-            ])
+        # === CIVIL ENGINEERING ===
+        civil_keywords = ['civil', 'construction', 'structural', 'architecture']
+        if any(kw in combined_text for kw in civil_keywords):
+            suggestions.append('Civil engineering internship 2026')
+            suggestions.append('Infrastructure design competition')
+            suggestions.append('Smart city hackathon')
         
-        # General student opportunities
+        # === CHEMICAL/BIOTECHNOLOGY ===
+        chem_keywords = ['chemical', 'biotech', 'biotechnology', 'pharmacy', 'pharmaceutical']
+        if any(kw in combined_text for kw in chem_keywords):
+            suggestions.append('Biotech innovation challenge 2026')
+            suggestions.append('Chemical engineering internship')
+            suggestions.append('Healthcare hackathon')
+        
+        # === BUSINESS/MANAGEMENT ===
+        mgmt_keywords = ['management', 'mba', 'business', 'finance', 'marketing']
+        if any(kw in combined_text for kw in mgmt_keywords):
+            suggestions.append('Business case competition 2026')
+            suggestions.append('Startup challenge')
+            suggestions.append('Management internship 2026')
+        
+        # === DESIGN/CREATIVE ===
+        design_keywords = ['design', 'ui', 'ux', 'graphic', 'creative']
+        if any(kw in combined_text for kw in design_keywords):
+            suggestions.append('Design competition 2026')
+            suggestions.append('UI/UX hackathon')
+        
+        # === GENERAL FOR ALL STUDENTS ===
+        # Always include general opportunities
         suggestions.extend([
             'Student hackathon 2026',
-            'College internship program',
-            'Student fellowship 2026'
+            'College internship program 2026',
+            'Student fellowship 2026',
+            'Innovation challenge',
+            'Student startup competition'
         ])
         
         # Remove duplicates and limit to 8
