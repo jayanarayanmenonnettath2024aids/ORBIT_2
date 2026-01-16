@@ -79,7 +79,19 @@ function ProfileBuilder({ onProfileCreated, existingProfile }) {
       setSuccess(true);
       // Don't auto-redirect - let user review and click Continue
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to parse resume');
+      console.error('Resume parse error:', err);
+      console.error('Error response:', err.response);
+      
+      let errorMessage = 'Failed to parse resume';
+      if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (err.message) {
+        errorMessage = err.message;
+      } else if (err.code === 'ECONNABORTED') {
+        errorMessage = 'Request timeout. The resume is taking too long to process.';
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

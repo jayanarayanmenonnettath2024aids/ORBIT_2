@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, ExternalLink, ChevronDown, ChevronUp, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { Search, ExternalLink, ChevronDown, ChevronUp, CheckCircle, AlertCircle, Clock, Bookmark } from 'lucide-react';
 import { searchOpportunities, analyzeEligibility } from '../services/api';
 
 function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
@@ -8,6 +8,90 @@ function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
   const [analyzing, setAnalyzing] = useState({});
   const [analyses, setAnalyses] = useState({});
   const [expandedOpp, setExpandedOpp] = useState(null);
+  const [saving, setSaving] = useState({});
+
+  const handleSaveToTracker = async (opportunity) => {
+    const oppId = opportunity.opportunity_id;
+    setSaving(prev => ({ ...prev, [oppId]: true }));
+    
+    try {
+      // Get userId from multiple sources
+      const userId = localStorage.getItem('userId') || 
+                     profile?.profile_id || 
+                     profile?.user_id;
+      
+      if (!userId) {
+        alert('❌ Please log in to save opportunities');
+        setSaving(prev => ({ ...prev, [oppId]: false }));
+        return;
+      }
+      
+      const analysis = analyses[oppId];
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      
+      console.log('API URL:', apiUrl);
+      console.log('Saving to tracker:', {
+        user_id: userId,
+        opportunity_title: opportunity.title,
+        opportunity_link: opportunity.link
+      });
+      
+      // Test backend connectivity first
+      try {
+        const healthCheck = await fetch(`${apiUrl}/health`, { 
+          method: 'GET',
+          signal: AbortSignal.timeout(5000)
+        });
+        if (!healthCheck.ok) {
+          throw new Error('Backend server is not responding');
+        }
+      } catch (healthErr) {
+        console.error('Backend health check failed:', healthErr);
+        alert('❌ Cannot connect to backend server. Please ensure:\n1. Backend is running (python app.py in backend folder)\n2. Server is on http://localhost:5000\n3. No firewall blocking the connection');
+        setSaving(prev => ({ ...prev, [oppId]: false }));
+        return;
+      }
+      
+      const response = await fetch(`${apiUrl}/applications`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          opportunity_title: opportunity.title,
+          opportunity_link: opportunity.link,
+          deadline: opportunity.deadline || 'Not specified',
+          eligibility_score: analysis?.confidence_score || null,
+          priority: 'medium',
+          notes: ''
+        }),
+        signal: AbortSignal.timeout(10000) // 10 second timeout
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        console.log('✅ Saved successfully:', data);
+        alert('✅ Saved to Application Tracker! Check the tracker tab.');
+      } else {
+        console.error('❌ Save failed:', data);
+        throw new Error(data.error || `Server error: ${response.status}`);
+      }
+    } catch (err) {
+      console.error('Save error:', err);
+      if (err.name === 'TimeoutError') {
+        alert('❌ Request timeout. Backend server may be slow or not running.');
+      } else if (err.message.includes('fetch')) {
+        alert('❌ Network error: Cannot connect to backend.\nPlease check:\n• Backend server is running\n• No firewall blocking localhost:5000');
+      } else {
+        alert(`❌ Failed to save: ${err.message}`);
+      }
+    } finally {
+      setSaving(prev => ({ ...prev, [oppId]: false }));
+    }
+  };
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -165,6 +249,15 @@ function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
                     <ExternalLink className="icon-sm" />
                     View Details
                   </a>
+
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => handleSaveToTracker(opp)}
+                    disabled={saving[opp.opportunity_id]}
+                  >
+                    <Bookmark className="icon-sm" />
+                    {saving[opp.opportunity_id] ? 'Saving...' : 'Save to Tracker'}
+                  </button>
 
                   {analysis && (
                     <button

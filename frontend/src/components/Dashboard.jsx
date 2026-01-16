@@ -1,45 +1,117 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ProfileBuilder from './ProfileBuilder';
 import OpportunityExplorer from './OpportunityExplorer';
-import { FileText, Search, Sparkles } from 'lucide-react';
+import ApplicationTracker from './ApplicationTracker';
+import AIChatbot from './AIChatbot';
+import AnalyticsDashboard from './AnalyticsDashboard';
+import GamificationDisplay from './GamificationDisplay';
+import { FileText, Search, Sparkles, ClipboardList, RefreshCw, BarChart3 } from 'lucide-react';
 
 function Dashboard({ profile, setProfile, opportunities, setOpportunities }) {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState('explore'); // Start with explore if profile exists
+  const [showUpdateProfile, setShowUpdateProfile] = useState(false);
+  
+  // Get user ID from localStorage or profile
+  const userId = localStorage.getItem('userId') || profile?.profile_id || 'default-user';
+
+  // Load profile from localStorage on mount
+  useEffect(() => {
+    const savedProfile = localStorage.getItem('userProfile');
+    if (savedProfile && !profile) {
+      try {
+        const parsedProfile = JSON.parse(savedProfile);
+        setProfile(parsedProfile);
+        setActiveTab('explore'); // Go straight to explore if profile exists
+        console.log('✅ Loaded saved profile from localStorage');
+      } catch (err) {
+        console.error('Failed to parse saved profile:', err);
+        localStorage.removeItem('userProfile');
+      }
+    } else if (!profile) {
+      setActiveTab('profile'); // No profile, start with profile builder
+    }
+  }, []);
+
+  // Save profile to localStorage whenever it changes
+  useEffect(() => {
+    if (profile) {
+      localStorage.setItem('userProfile', JSON.stringify(profile));
+      console.log('✅ Profile saved to localStorage');
+    }
+  }, [profile]);
 
   return (
     <div className="dashboard">
       <div className="container">
         {/* Welcome Section */}
         <div className="welcome-section">
-          <h2 className="welcome-title">
-            <Sparkles className="icon" />
-            Welcome to Your Opportunity Journey
-          </h2>
-          <p className="welcome-text">
-            This system doesn't just tell you if you're eligible—it shows you the path to become eligible.
-          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h2 className="welcome-title">
+                <Sparkles className="icon" />
+                Welcome to Your Opportunity Journey
+              </h2>
+              <p className="welcome-text">
+                This system doesn't just tell you if you're eligible—it shows you the path to become eligible.
+              </p>
+            </div>
+            {profile && (
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowUpdateProfile(true);
+                  setActiveTab('profile');
+                }}
+                style={{ minWidth: '160px' }}
+              >
+                <RefreshCw className="icon-sm" />
+                Update Profile
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tab Navigation */}
         <div className="tab-nav">
-          <button
-            className={`tab-button ${activeTab === 'profile' ? 'active' : ''}`}
-            onClick={() => setActiveTab('profile')}
-          >
-            <FileText className="icon-sm" />
-            Step 1: Build Your Profile
-          </button>
+          {(!profile || showUpdateProfile) && (
+            <button
+              className={`tab-button ${activeTab === 'profile' ? 'active' : ''}`}
+              onClick={() => setActiveTab('profile')}
+            >
+              <FileText className="icon-sm" />
+              {profile ? 'Update Your Profile' : 'Step 1: Build Your Profile'}
+            </button>
+          )}
           <button
             className={`tab-button ${activeTab === 'explore' ? 'active' : ''}`}
             onClick={() => setActiveTab('explore')}
             disabled={!profile}
           >
             <Search className="icon-sm" />
-            Step 2: Explore Opportunities
+            {profile && !showUpdateProfile ? 'Explore Opportunities' : 'Step 2: Explore Opportunities'}
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'tracker' ? 'active' : ''}`}
+            onClick={() => setActiveTab('tracker')}
+            disabled={!profile}
+          >
+            <ClipboardList className="icon-sm" />
+            Application Tracker
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'analytics' ? 'active' : ''}`}
+            onClick={() => setActiveTab('analytics')}
+            disabled={!profile}
+          >
+            <BarChart3 className="icon-sm" />
+            Analytics & Rankings
           </button>
         </div>
+
+        {/* Gamification Bar */}
+        {profile && <GamificationDisplay userId={userId} />}
 
         {/* Tab Content */}
         <div className="tab-content">
@@ -47,6 +119,7 @@ function Dashboard({ profile, setProfile, opportunities, setOpportunities }) {
             <ProfileBuilder 
               onProfileCreated={(newProfile) => {
                 setProfile(newProfile);
+                setShowUpdateProfile(false);
                 setActiveTab('explore');
               }}
               existingProfile={profile}
@@ -60,7 +133,23 @@ function Dashboard({ profile, setProfile, opportunities, setOpportunities }) {
               setOpportunities={setOpportunities}
             />
           )}
+
+          {activeTab === 'tracker' && profile && (
+            <ApplicationTracker userId={userId} />
+          )}
+
+          {activeTab === 'analytics' && profile && (
+            <AnalyticsDashboard userId={userId} />
+          )}
         </div>
+
+        {/* AI Chatbot - Always visible */}
+        {profile && (
+          <AIChatbot 
+            userId={userId}
+            context={{ profile: profile }}
+          />
+        )}
 
         {/* Info Cards */}
         <div className="info-cards">

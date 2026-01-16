@@ -52,7 +52,21 @@ function Auth() {
       }
     } catch (err) {
       console.error('Authentication error:', err);
-      setError(err.response?.data?.error || err.message || 'Authentication failed. Please try again.');
+      console.error('Error details:', err.response);
+      
+      let errorMessage = 'Authentication failed. Please try again.';
+      
+      if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (err.message) {
+        errorMessage = err.message;
+      } else if (!navigator.onLine) {
+        errorMessage = 'No internet connection. Please check your network.';
+      } else if (err.code === 'ERR_NETWORK') {
+        errorMessage = 'Cannot connect to server. Make sure the backend is running on http://localhost:5000';
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

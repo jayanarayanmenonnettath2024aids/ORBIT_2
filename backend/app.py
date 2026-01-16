@@ -13,6 +13,9 @@ from services.profile_service import ProfileService
 from services.opportunity_service import OpportunityService
 from services.reasoning_service import ReasoningService
 from services.firebase_service import FirebaseService
+from services.chatbot_service import ChatbotService
+from services.gamification_service import GamificationService
+from services.analytics_service import AnalyticsService
 from services.auth_service import (
     register_user, 
     login_user, 
@@ -34,6 +37,9 @@ firebase_service = FirebaseService()
 profile_service = ProfileService(firebase_service)
 opportunity_service = OpportunityService(firebase_service)
 reasoning_service = ReasoningService(firebase_service)
+chatbot_service = ChatbotService()
+gamification_service = GamificationService(firebase_service)
+analytics_service = AnalyticsService(firebase_service)
 
 # ============================================================================
 # AUTHENTICATION ENDPOINTS
@@ -288,6 +294,14 @@ def search_opportunities():
         result = opportunity_service.search_opportunities(query, opportunity_type)
         all_opportunities = result['opportunities']
         
+        # Award points for search (if user_id provided)
+        user_id = data.get('user_id')
+        if user_id:
+            try:
+                gamification_service.award_points(user_id, 'search_opportunity')
+            except:
+                pass  # Don't fail request if gamification fails
+        
         # Apply year filter if specified
         if year_filter:
             all_opportunities = [
@@ -485,6 +499,218 @@ def get_reasoning_result(reasoning_id):
 
 
 # ============================================================================
+# APPLICATION TRACKER ENDPOINTS
+# ============================================================================
+
+@app.route('/api/applications', methods=['POST'])
+def create_application():
+    """Create new application tracking entry"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+        
+        application_data = {
+            'opportunity_title': data.get('opportunity_title'),
+            'opportunity_link': data.get('opportunity_link'),
+            'deadline': data.get('deadline'),
+            'status': 'saved',  # saved, applied, under_review, accepted, rejected
+            'priority': data.get('priority', 'medium'),  # low, medium, high
+            'notes': data.get('notes', ''),
+            'eligibility_score': data.get('eligibility_score')
+        }
+        
+        result = firebase_service.create_application(user_id, application_data)
+        return jsonify(result), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/applications/<user_id>', methods=['GET'])
+def get_applications(user_id):
+    """Get all applications for a user"""
+    try:
+        applications = firebase_service.get_user_applications(user_id)
+        return jsonify(applications), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/applications/<application_id>', methods=['PUT'])
+def update_application(application_id):
+    """Update application status"""
+    try:
+        data = request.json
+        status = data.get('status')
+        notes = data.get('notes')
+        
+        result = firebase_service.update_application_status(application_id, status, notes)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# ELIGIBILITY SCORE ENDPOINTS
+# ============================================================================
+
+@app.route('/api/eligibility/calculate', methods=['POST'])
+def calculate_eligibility():
+    """Calculate eligibility score for opportunity"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        opportunity_data = data.get('opportunity')
+        
+        # Get user profile
+        profile = firebase_service.get_profile(user_id)
+        if not profile:
+            return jsonify({'error': 'Profile not found'}), 404
+        
+        # Calculate score
+        result = profile_service.calculate_eligibility_score(profile.get('profile', {}), opportunity_data)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# AI CHATBOT ENDPOINTS
+# ============================================================================
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """Handle chatbot messages"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        message = data.get('message')
+        context = data.get('context', {})  # Optional: current opportunity
+        
+        if not user_id or not message:
+            return jsonify({'error': 'User ID and message required'}), 400
+        
+        # Auto-load user profile for personalized responses
+        try:
+            profile = firebase_service.get_user_profile(user_id)
+            if profile:
+                context['profile'] = profile
+                print(f"✓ Loaded profile for chatbot: {profile.get('personal_info', {}).get('name', 'User')}")
+        except Exception as profile_error:
+            print(f"⚠️  Could not load profile for chatbot: {profile_error}")
+        
+        result = chatbot_service.chat(user_id, message, context)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/clear/<user_id>', methods=['POST'])
+def clear_chat_history(user_id):
+    """Clear chat history for user"""
+    try:
+        result = chatbot_service.clear_history(user_id)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# GAMIFICATION ENDPOINTS
+# ============================================================================
+
+@app.route('/api/gamification/<user_id>', methods=['GET'])
+def get_gamification(user_id):
+    """Get user's gamification profile"""
+    try:
+        result = gamification_service.get_user_gamification(user_id)
+        if result:
+            return jsonify(result), 200
+        return jsonify({'error': 'User not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/gamification/action', methods=['POST'])
+def award_points():
+    """Award points for user action"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        action = data.get('action')
+        metadata = data.get('metadata')
+        
+        if not user_id or not action:
+            return jsonify({'error': 'user_id and action required'}), 400
+        
+        result = gamification_service.award_points(user_id, action, metadata)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/gamification/streak/<user_id>', methods=['POST'])
+def update_streak(user_id):
+    """Update daily login streak"""
+    try:
+        result = gamification_service.update_login_streak(user_id)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/gamification/leaderboard', methods=['GET'])
+def get_leaderboard():
+    """Get global leaderboard"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        result = gamification_service.get_leaderboard(limit)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# ANALYTICS ENDPOINTS
+# ============================================================================
+
+@app.route('/api/analytics/<user_id>', methods=['GET'])
+def get_analytics(user_id):
+    """Get comprehensive analytics for user"""
+    try:
+        result = analytics_service.get_user_analytics(user_id)
+        if result:
+            return jsonify(result), 200
+        return jsonify({'error': 'No data found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/analytics/leaderboard/<user_id>', methods=['GET'])
+def get_leaderboard_stats(user_id):
+    """Get user's leaderboard position and surrounding users"""
+    try:
+        result = analytics_service.get_leaderboard_stats(user_id)
+        if result:
+            return jsonify(result), 200
+        return jsonify({'error': 'User not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/analytics/insights/<user_id>', methods=['GET'])
+def get_insights(user_id):
+    """Get personalized insights and recommendations"""
+    try:
+        result = analytics_service.get_insights(user_id)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
 # HEALTH & INFO ENDPOINTS
 # ============================================================================
 
@@ -556,7 +782,6 @@ if __name__ == '__main__':
     Environment: {'Development' if debug else 'Production'}
     """)
     
-    # Disable auto-reload in production, enable only in development
-    # This fixes the issue where resume parsing gets killed by Flask restarts
-    use_reloader = debug  # Only reload in development
-    app.run(host='0.0.0.0', port=port, debug=debug, use_reloader=use_reloader)
+    # Disable auto-reload to prevent interruption during long-running requests (resume parsing)
+    # Set use_reloader=False to avoid Flask restarting during file uploads
+    app.run(host='0.0.0.0', port=port, debug=debug, use_reloader=False)

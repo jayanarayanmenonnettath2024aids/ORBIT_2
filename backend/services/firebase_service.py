@@ -22,25 +22,40 @@ class FirebaseService:
         try:
             # Check if already initialized
             if not firebase_admin._apps:
-                # Try to get Firebase config from environment
-                firebase_config_path = os.getenv('FIREBASE_CONFIG_PATH')
+                # Method 1: Try environment variable with JSON string (best for deployment)
+                firebase_json = os.getenv('FIREBASE_CREDENTIALS_JSON')
+                if firebase_json:
+                    print("✓ Initializing Firebase from FIREBASE_CREDENTIALS_JSON environment variable")
+                    try:
+                        config_dict = json.loads(firebase_json)
+                        cred = credentials.Certificate(config_dict)
+                        firebase_admin.initialize_app(cred)
+                    except json.JSONDecodeError as e:
+                        print(f"❌ Failed to parse FIREBASE_CREDENTIALS_JSON: {e}")
+                        raise
                 
-                if firebase_config_path and os.path.exists(firebase_config_path):
-                    # Use service account file
-                    print(f"✓ Initializing Firebase with config file: {firebase_config_path}")
-                    cred = credentials.Certificate(firebase_config_path)
+                # Method 2: Try file path from environment variable
+                elif os.getenv('FIREBASE_CONFIG_PATH'):
+                    firebase_config_path = os.getenv('FIREBASE_CONFIG_PATH')
+                    if os.path.exists(firebase_config_path):
+                        print(f"✓ Initializing Firebase with config file: {firebase_config_path}")
+                        cred = credentials.Certificate(firebase_config_path)
+                        firebase_admin.initialize_app(cred)
+                    else:
+                        print(f"❌ Firebase config file not found: {firebase_config_path}")
+                        raise FileNotFoundError(f"Firebase credentials file not found: {firebase_config_path}")
+                
+                # Method 3: Try default file location (for local development)
+                elif os.path.exists('./firebase-credentials.json'):
+                    print("✓ Initializing Firebase with config file: ./firebase-credentials.json")
+                    cred = credentials.Certificate('./firebase-credentials.json')
                     firebase_admin.initialize_app(cred)
-                elif os.getenv('FIREBASE_CONFIG_JSON'):
-                    # Use JSON string from environment
-                    print("✓ Initializing Firebase with JSON config")
-                    config_dict = json.loads(os.getenv('FIREBASE_CONFIG_JSON'))
-                    cred = credentials.Certificate(config_dict)
-                    firebase_admin.initialize_app(cred)
+                
+                # No credentials found
                 else:
-                    # Use default credentials (for local development/testing)
-                    print("⚠️  Warning: No Firebase credentials provided.")
-                    print("⚠️  Firebase operations will be disabled. System will still function with in-memory storage.")
-                    firebase_admin.initialize_app()
+                    print("❌ ERROR: No Firebase credentials provided!")
+                    print("Set FIREBASE_CREDENTIALS_JSON environment variable or provide firebase-credentials.json file")
+                    raise ValueError("Firebase credentials not configured")
             
             # Get Firestore client
             self.db = firestore.client()
@@ -268,3 +283,119 @@ class FirebaseService:
         except Exception as e:
             print(f"❌ Error getting cached reasoning: {e}")
             return None
+    
+    
+    # ========================================================================
+    # APPLICATION TRACKER OPERATIONS
+    # ========================================================================
+    
+    def create_application(self, user_id, application_data):
+        """Create new application tracking entry"""
+        if not self.firebase_enabled:
+            print("⚠️  Firebase disabled - cannot create application")
+            return {'id': 'unsaved', **application_data}
+        
+        try:
+            from datetime import datetime
+            
+            application_ref = self.db.collection('applications').document()
+            
+            # Create a copy to avoid modifying original
+            app_data_to_save = application_data.copy()
+            app_data_to_save.update({
+                'user_id': user_id,
+                'created_at': firestore.SERVER_TIMESTAMP,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            })
+            
+            application_ref.set(app_data_to_save)
+            print(f"✓ Created application {application_ref.id}")
+            
+            # Return JSON-serializable data (replace SERVER_TIMESTAMP with current time)
+            return {
+                'id': application_ref.id,
+                'user_id': user_id,
+                'opportunity_title': application_data.get('opportunity_title'),
+                'opportunity_link': application_data.get('opportunity_link'),
+                'deadline': application_data.get('deadline'),
+                'status': application_data.get('status'),
+                'priority': application_data.get('priority'),
+                'notes': application_data.get('notes', ''),
+                'eligibility_score': application_data.get('eligibility_score'),
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            }
+        except Exception as e:
+            print(f"❌ Error creating application: {str(e)}")
+            raise
+    
+    
+    def get_user_applications(self, user_id):
+        """Get all applications for a user"""
+        if not self.firebase_enabled:
+            print("⚠️  Firebase disabled - cannot retrieve applications")
+            return []
+        
+        try:
+            applications = []
+            docs = self.db.collection('applications')\
+                .where(filter=firestore.FieldFilter('user_id', '==', user_id))\
+                .stream()
+            
+            for doc in docs:
+                app_data = doc.to_dict()
+                app_data['id'] = doc.id
+                
+                # Convert Firestore timestamps to ISO strings for JSON serialization
+                if 'created_at' in app_data and app_data['created_at']:
+                    try:
+                        app_data['created_at'] = app_data['created_at'].isoformat()
+                    except:
+                        app_data['created_at'] = None
+                        
+                if 'updated_at' in app_data and app_data['updated_at']:
+                    try:
+                        app_data['updated_at'] = app_data['updated_at'].isoformat()
+                    except:
+                        app_data['updated_at'] = None
+                        
+                applications.append(app_data)
+            
+            # Sort by created_at in Python (descending - newest first)
+            applications.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            
+            print(f"✓ Retrieved {len(applications)} applications for user {user_id}")
+            return applications
+        except Exception as e:
+            print(f"❌ Error fetching applications: {str(e)}")
+            raise
+    
+    
+    def update_application_status(self, application_id, status, notes=None):
+        """Update application status"""
+        if not self.firebase_enabled:
+            print("⚠️  Firebase disabled - cannot update application")
+            return {'success': False}
+        
+        try:
+            from datetime import datetime
+            
+            update_data = {
+                'status': status,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            }
+            if notes:
+                update_data['notes'] = notes
+                
+            self.db.collection('applications').document(application_id).update(update_data)
+            print(f"✓ Updated application {application_id} status to {status}")
+            
+            # Return JSON-safe response
+            return {
+                'success': True, 
+                'status': status,
+                'updated_at': datetime.now().isoformat()
+            }
+        except Exception as e:
+            print(f"❌ Error updating application: {str(e)}")
+            raise

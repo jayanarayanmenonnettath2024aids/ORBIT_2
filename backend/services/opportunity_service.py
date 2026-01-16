@@ -183,211 +183,179 @@ class OpportunityService:
     # PRIVATE HELPER METHODS
     # ========================================================================
     
-    def _enhance_query(self, query, opportunity_type=None):
+    def _enhance_query(self, query, filters=None):
         """
-        Enhance search query with context, date filtering, and relevance
-        Focuses on 2026 opportunities only
+        SIMPLIFIED query enhancement - less aggressive
         
         Args:
             query: Base query
-            opportunity_type: Type filter
+            filters: Optional filters dictionary
         
         Returns:
             Enhanced query string
         """
-        # Add opportunity type to query
-        if opportunity_type:
-            query = f"{opportunity_type} {query}"
+        enhanced_parts = [query]
         
-        # CRITICAL: Force 2026 results only
-        query += " 2026"
+        # Add year filter if specified
+        if filters and filters.get('deadline_year'):
+            year = filters['deadline_year']
+            enhanced_parts.append(f"{year}")
         
-        # Exclude old years explicitly
-        query += " -2025 -2024 -2023"
+        # Simple domain targeting for common categories
+        category_domains = {
+            'hackathon': 'site:devpost.com OR site:devfolio.co OR site:unstop.com',
+            'scholarship': 'site:scholars4dev.com OR site:opportunitydesk.org',
+            'internship': 'site:internshala.com OR site:linkedin.com/jobs',
+            'research': 'site:researchgate.net OR site:scholar.google.com'
+        }
         
-        # Add platform context for better results with more specific targeting
-        platforms = []
         query_lower = query.lower()
+        for category, domains in category_domains.items():
+            if category in query_lower:
+                enhanced_parts.append(f"({domains})")
+                break
         
-        if 'hackathon' in query_lower:
-            # Focus on platforms that host hackathons with active listings
-            platforms = ['(site:unstop.com OR site:devfolio.co OR site:mlh.io OR site:hackerearth.com OR site:devpost.com)']
-            query += " (register OR apply OR 'last date' OR deadline OR 'open for registration' OR 'registration open')"
-            # Add relevant keywords
-            if 'ai' in query_lower or 'ml' in query_lower or 'machine learning' in query_lower:
-                query += " artificial intelligence machine learning"
-        elif 'internship' in query_lower:
-            platforms = ['(site:linkedin.com OR site:internshala.com OR site:unstop.com OR site:indeed.com)']
-            query += " (apply OR 'last date' OR deadline OR 'summer 2026' OR 'applications open' OR 'now hiring')"
-        elif 'scholarship' in query_lower or 'fellowship' in query_lower:
-            platforms = ['(site:buddy4study.com OR site:scholars4dev.com OR site:opportunitiesforafricans.com)']
-            query += " (apply OR deadline OR 2026 OR 'applications open')"
-        
-        # Add context for student opportunities
-        if 'student' not in query_lower and 'college' not in query_lower:
-            query += " students college"
-        
-        # Add India context if not present (can be modified based on location)
-        if 'india' not in query_lower and 'international' not in query_lower:
-            query += " India"
-        
-        # Add deadline/registration keywords for active opportunities
-        query += " (upcoming OR 'coming soon' OR 'registration open' OR 'apply now')"
-        
-        # Add platform-specific search if applicable
-        if platforms:
-            query += f" {platforms[0]}"
-        
-        return query
-        query += " (register OR apply OR deadline OR 'last date')"
-        
-        # Add year context for recent opportunities
-        current_year = datetime.now().year
-        if str(current_year) not in query:
-            query += f" {current_year}"
-        
-        # Add platform-specific search if applicable
-        if platforms:
-            query += f" {platforms[0]}"
-        
-        return query
+        return ' '.join(enhanced_parts)
     
     
-    def _perform_google_search(self, query, num_results=20):
+    def _perform_google_search(self, query, num_results=10):
         """
-        Perform Google Custom Search API call with date filtering
-        Now fetches 20 results for pagination
+        Perform Google Custom Search API call with date filtering and pagination
+        Fetches diverse results to avoid showing same opportunities
+        Now includes India-specific filtering
         
         Args:
             query: Search query
-            num_results: Number of results to fetch
+            num_results: Number of results per page (max 10 per API call)
         
         Returns:
             Search results dictionary
         """
         if not self.search_api_key or not self.search_engine_id:
-            # Return mock data for testing without API keys
+            print("⚠️  Missing API credentials - using mock data")
             return self._get_mock_search_results(query)
         
         try:
-            # Focus on recent content - pages indexed in last 3 months
-            # This catches newly posted events for 2026
-            params = {
-                'key': self.search_api_key,
-                'cx': self.search_engine_id,
-                'q': query,
-                'num': num_results,
-                'dateRestrict': 'm3',  # Last 3 months - more recent content
-                'sort': 'date:d:s'  # Sort by date descending (newest first)
-            }
+            all_items = []
             
-            print(f"🔍 Searching Google: {query[:100]}...")
+            # Fetch multiple pages for diverse results (5 pages = 50 results)
+            for start_index in [1, 11, 21, 31, 41]:
+                params = {
+                    'key': self.search_api_key,
+                    'cx': self.search_engine_id,
+                    'q': f"{query} India",  # Add India filter
+                    'num': num_results,
+                    'start': start_index,
+                    'dateRestrict': 'm6',  # Last 6 months
+                    'sort': 'date:d:s',
+                    'gl': 'in',  # Geographic location: India
+                    'cr': 'countryIN'  # Country restrict: India
+                }
+                
+                print(f"🔍 Google Search (page {start_index}): {query} India")
+                
+                response = requests.get(self.search_url, params=params, timeout=10)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    items = result.get('items', [])
+                    all_items.extend(items)
+                    print(f"✅ Found {len(items)} results on page {start_index}")
+                elif response.status_code == 429:
+                    print(f"⚠️  Rate limit hit, using {len(all_items)} results so far")
+                    break
+                else:
+                    print(f"⚠️  API returned status {response.status_code} for page {start_index}")
+                    # Continue to next page even if this one fails (unless it's the first page)
+                    if start_index == 1:
+                        print("❌ First page failed, stopping search")
+                        break
+                    else:
+                        print("➡️  Continuing to next page...")
+                        continue
             
-            response = requests.get(self.search_url, params=params, timeout=10)
-            response.raise_for_status()
+            if not all_items:
+                print("⚠️  No results from API - using mock data")
+                return self._get_mock_search_results(query)
             
-            result = response.json()
-            print(f"✅ Found {len(result.get('items', []))} results")
-            
-            return result
+            print(f"✅ Total results fetched: {len(all_items)}")
+            return {'items': all_items}
             
         except requests.RequestException as e:
             print(f"❌ Google Search API error: {e}")
-            # Return mock data as fallback
+            print("⚠️  Falling back to mock data")
             return self._get_mock_search_results(query)
     
     
     def _parse_search_results(self, search_results, opportunity_type=None):
         """
-        Parse Google search results into structured opportunities
-        Enhanced to show accurate, fresh information
+        Parse search results WITH relevance scoring and deadline filtering
+        Removes expired opportunities based on deadline detection
         
         Args:
             search_results: Raw Google API response
             opportunity_type: Optional type filter
         
         Returns:
-            List of structured opportunity dictionaries
+            List of structured opportunity dictionaries (only active/future events)
         """
         opportunities = []
+        skipped_relevance = 0
+        skipped_expired = 0
         
         items = search_results.get('items', [])
         print(f"📄 Parsing {len(items)} search results...")
         
         for idx, item in enumerate(items, 1):
-            title = item.get('title', '')
+            title = item.get('title', 'No title')
             link = item.get('link', '')
-            snippet = item.get('snippet', '')
+            snippet = item.get('snippet', 'No description')
             
-            # Get the actual page metadata if available
-            pagemap = item.get('pagemap', {})
-            metatags = pagemap.get('metatags', [{}])[0]
+            # Calculate relevance score (0-100)
+            relevance_score = self._calculate_relevance_score(item)
             
-            # Use meta description if available (more accurate than snippet)
-            description = metatags.get('og:description') or metatags.get('description') or snippet
+            # More lenient filtering - accept if score > 15
+            if relevance_score < 15:
+                print(f"⏭️  Skipping #{idx}: Low relevance score {relevance_score} ({title[:50]}...)")
+                skipped_relevance += 1
+                continue
             
-            title_lower = title.lower()
-            description_lower = description.lower()
-            combined = f"{title_lower} {description_lower}"
-            
-            # STRICTER 2026 filtering - must mention 2026 OR be from a listing site with active content
-            current_year = datetime.now().year
-            
-            # Skip if explicitly mentions old years and not 2026
-            if '2025' in combined or '2024' in combined or '2023' in combined:
-                if '2026' not in combined:
-                    print(f"⏭️  Skipping #{idx}: Old year detected ({title[:50]}...)")
-                    continue
-            
-            # Skip closed events
-            closed_keywords = ['closed', 'ended', 'concluded', 'completed', 'finished', 'over', 'winners announced']
-            if any(word in combined for word in closed_keywords):
-                print(f"⏭️  Skipping #{idx}: Closed event ({title[:50]}...)")
+            # Check if opportunity has expired deadline
+            if self._is_opportunity_expired(title, snippet):
+                print(f"⏭️  Skipping #{idx}: Expired deadline ({title[:50]}...)")
+                skipped_expired += 1
                 continue
             
             # Infer type if not provided
-            inferred_type = opportunity_type or self._infer_opportunity_type(title, description)
-            
-            # Type-based filtering: skip mismatched types
-            if opportunity_type:
-                # If searching for hackathon, skip internships
-                if opportunity_type.lower() == 'hackathon':
-                    internship_keywords = ['internship', 'intern position', 'summer intern', 'winter intern', 'intern opening']
-                    if any(kw in combined for kw in internship_keywords) and 'hackathon' not in combined:
-                        print(f"⏭️  Skipping #{idx}: Type mismatch (looking for hackathon, found internship)")
-                        continue
-                # If searching for internship, skip hackathons
-                elif 'internship' in opportunity_type.lower():
-                    hackathon_keywords = ['hackathon', 'hack ', 'coding competition', 'programming contest']
-                    if any(kw in combined for kw in hackathon_keywords) and 'internship' not in combined:
-                        print(f"⏭️  Skipping #{idx}: Type mismatch (looking for internship, found hackathon)")
-                        continue
+            inferred_type = opportunity_type or self._infer_opportunity_type(title, snippet)
             
             # Extract opportunity details
+            # Combine title and snippet for better deadline extraction
+            combined_text = f"{title} {snippet}"
+            deadline = self._extract_deadline(combined_text)
+            
             opportunity = {
                 'title': title,
                 'link': link,
-                'snippet': description[:300],  # Use better description, limit length
-                'organizer': self._extract_organizer(title, description),
-                'eligibility_text': self._extract_eligibility(description),
-                'deadline': self._extract_deadline(description),
+                'description': snippet,
+                'snippet': snippet,
+                'source': self._extract_domain(link),
+                'relevance_score': relevance_score,
+                'discovered_date': datetime.now().isoformat(),
                 'type': inferred_type,
-                'source': 'google_search',
-                'year': '2026' if '2026' in combined else str(current_year),
-                'page_date': metatags.get('article:published_time', '')  # Track when page was published
+                'organizer': self._extract_organizer(title, snippet),
+                'eligibility_text': self._extract_eligibility(snippet),
+                'deadline': deadline or 'Not specified',
+                'apply_by': deadline or 'Not specified',
+                'opportunity_id': f"opp_{len(opportunities) + 1}"
             }
             
-            print(f"✅ #{idx}: {title[:60]}... ({inferred_type}, {opportunity['year']})")
+            print(f"✅ Added #{idx}: {title[:50]}... (Score: {relevance_score})")
             opportunities.append(opportunity)
         
-        # Advanced sorting: prioritize 2026, open registrations, and type match
-        opportunities.sort(key=lambda x: (
-            x.get('year', '') == '2026',  # 2026 first
-            'register' in x['snippet'].lower() or 'apply' in x['snippet'].lower() or 'open' in x['snippet'].lower(),  # Open registrations
-            x.get('type', '') == opportunity_type if opportunity_type else True  # Type match
-        ), reverse=True)
-        
-        print(f"🎯 Returning {len(opportunities)} filtered opportunities")
+        # Sort by relevance score
+        opportunities.sort(key=lambda x: x['relevance_score'], reverse=True)
+        print(f"📊 Results: {len(opportunities)} kept, {skipped_relevance} low relevance, {skipped_expired} expired")
         
         return opportunities
     
@@ -460,24 +428,180 @@ class OpportunityService:
     
     def _extract_deadline(self, snippet):
         """
-        Extract deadline date from snippet
+        Extract deadline date from snippet with extensive pattern matching
+        Searches aggressively for any date mentions
+        Returns formatted date string or None
         """
-        # Common date patterns
+        from datetime import datetime
+        import re
+        
+        # Look in both snippet (title + description are passed together)
+        text = snippet
+        
+        # Extensive date patterns - catch everything possible
         date_patterns = [
-            r'deadline:?\s*([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})',
-            r'by\s+([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})',
-            r'until\s+([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})',
-            r'(\d{1,2}/\d{1,2}/\d{4})',
-            r'(\d{1,2}-\d{1,2}-\d{4})'
+            # With keywords
+            (r'(?:deadline|apply by|last date|due date|register by|submit by|registration deadline|application deadline|closes on|close date|expiry|expires|ends on|till|before):?\s*([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})', 'keyword_mdy'),
+            (r'(?:deadline|apply by|last date|due date|register by|submit by|registration deadline|application deadline|closes on|close date|expiry|expires|ends on|till|before):?\s*(\d{1,2}\s+[A-Z][a-z]+\s+\d{4})', 'keyword_dmy'),
+            (r'(?:deadline|apply by|last date|due date|register by|submit by):?\s*(\d{1,2}\s+[A-Z][a-z]+\s+\'\d{2})', 'keyword_short_dmy'),
+            (r'(?:deadline|apply by|last date|due date|register by|submit by):?\s*([A-Z][a-z]+\s+\d{1,2}\s+\'\d{2})', 'keyword_short_mdy'),
+            
+            # Standalone dates (more aggressive)
+            (r'\b([A-Z][a-z]+\s+\d{1,2},?\s+20\d{2})\b', 'standalone_mdy'),
+            (r'\b(\d{1,2}\s+[A-Z][a-z]+\s+20\d{2})\b', 'standalone_dmy'),
+            (r'\b(\d{1,2}\s+[A-Z][a-z]+\s+\'\d{2})\b', 'standalone_short_dmy'),
+            (r'\b([A-Z][a-z]+\s+\d{1,2}\s+\'\d{2})\b', 'standalone_short_mdy'),
+            
+            # Numeric formats
+            (r'\b(\d{1,2}/\d{1,2}/20\d{2})\b', 'slash'),
+            (r'\b(\d{1,2}-\d{1,2}-20\d{2})\b', 'dash'),
+            (r'\b(20\d{2}-\d{1,2}-\d{1,2})\b', 'iso'),
         ]
         
-        for pattern in date_patterns:
-            match = re.search(pattern, snippet)
+        for pattern, date_type in date_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                return match.group(1)
+                date_str = match.group(1)
+                
+                # Convert short year to full year
+                if "'" in date_str:
+                    date_str = date_str.replace("'2", "202").replace("'1", "201")
+                
+                print(f"📅 Found deadline: {date_str}")
+                return date_str
         
+        print("⚠️  No deadline found in snippet")
         return None
     
+    
+    def _calculate_relevance_score(self, item):
+        """
+        Calculate relevance score (0-100) based on multiple factors
+        
+        Args:
+            item: Search result item
+        
+        Returns:
+            Relevance score (0-100)
+        """
+        score = 50  # Base score
+        
+        title = item.get('title', '').lower()
+        snippet = item.get('snippet', '').lower()
+        link = item.get('link', '').lower()
+        
+        # High-value keywords boost score
+        high_value_keywords = ['apply', 'deadline', 'eligibility', 'register', 'prize', 'stipend', '2026']
+        for keyword in high_value_keywords:
+            if keyword in title:
+                score += 5
+            if keyword in snippet:
+                score += 3
+        
+        # Trusted domains get boost
+        trusted_domains = ['devpost.com', 'devfolio.co', 'unstop.com', 'internshala.com', 
+                          'scholars4dev.com', 'opportunitydesk.org', 'linkedin.com']
+        for domain in trusted_domains:
+            if domain in link:
+                score += 15
+                break
+        
+        # Penalty for irrelevant indicators
+        spam_indicators = ['login', 'signin', 'profile', 'settings', 'terms', 'privacy']
+        for indicator in spam_indicators:
+            if indicator in link:
+                score -= 20
+        
+        return max(0, min(100, score))
+    
+    
+    def _extract_domain(self, url):
+        """Extract domain from URL"""
+        try:
+            from urllib.parse import urlparse
+            return urlparse(url).netloc
+        except:
+            return 'Unknown'
+    
+    
+    def _is_opportunity_expired(self, title, snippet):
+        """
+        Check if opportunity deadline has passed
+        Dynamically calculates relative to today's date
+        """
+        from datetime import datetime, timedelta
+        import re
+        
+        text = (title + ' ' + snippet).lower()
+        current_date = datetime.now()
+        
+        # Look for "closed", "ended", "expired" keywords
+        expired_keywords = ['closed', 'ended', 'expired', 'registration closed', 'applications closed']
+        if any(keyword in text for keyword in expired_keywords):
+            return True
+        
+        # Extract dates from text with multiple patterns
+        date_patterns = [
+            # Month Day, Year: Jan 15, 2026
+            (r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* (\d{1,2}),? (\d{4})', 'mdy'),
+            # Day-Month-Year: 15-01-2026 or 15/01/2026
+            (r'(\d{1,2})[-/](\d{1,2})[-/](\d{4})', 'dmy'),
+            # Year-Month-Day: 2026-01-15
+            (r'(\d{4})-(\d{1,2})-(\d{1,2})', 'ymd'),
+            # Deadline: 15 Jan 2026
+            (r'deadline:?\s*(\d{1,2})\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*(\d{4})', 'dmy_text'),
+        ]
+        
+        month_map = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                     'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12}
+        
+        for pattern, format_type in date_patterns:
+            matches = re.findall(pattern, text)
+            for match in matches:
+                try:
+                    deadline = None
+                    
+                    if format_type == 'mdy':
+                        # Month Day, Year
+                        month = month_map.get(match[0][:3])
+                        day = int(match[1])
+                        year = int(match[2])
+                        if month:
+                            deadline = datetime(year, month, day)
+                    
+                    elif format_type == 'dmy':
+                        # Day-Month-Year
+                        day = int(match[0])
+                        month = int(match[1])
+                        year = int(match[2])
+                        deadline = datetime(year, month, day)
+                    
+                    elif format_type == 'ymd':
+                        # Year-Month-Day
+                        year = int(match[0])
+                        month = int(match[1])
+                        day = int(match[2])
+                        deadline = datetime(year, month, day)
+                    
+                    elif format_type == 'dmy_text':
+                        # Day Month Year (text)
+                        day = int(match[0])
+                        month = month_map.get(match[1][:3])
+                        year = int(match[2])
+                        if month:
+                            deadline = datetime(year, month, day)
+                    
+                    # Check if deadline is before yesterday
+                    # Filter out anything with deadline on or before day before yesterday
+                    yesterday = current_date - timedelta(days=1)
+                    if deadline and deadline.date() < yesterday.date():
+                        print(f"🚫 Expired: {deadline.date()} is before yesterday {yesterday.date()}")
+                        return True
+                        
+                except Exception as e:
+                    continue
+        
+        return False
     
     def _infer_opportunity_type(self, title, snippet):
         """

@@ -73,9 +73,11 @@ export const getProfile = async (profileId) => {
 // ============================================================================
 
 export const searchOpportunities = async (query, opportunityType = null) => {
+  const userId = localStorage.getItem('userId');
   const response = await api.post('/opportunities/search', {
     query,
     opportunity_type: opportunityType,
+    user_id: userId // Send userId to award points
   });
   return response.data;
 };

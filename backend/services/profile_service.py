@@ -373,7 +373,19 @@ CRITICAL RULES:
         exp_count = len(experience)
         achievement_count = len(achievements)
         
-        prompt = f"""You are an expert career counselor evaluating a SPECIFIC student's resume. Provide PERSONALIZED feedback based on their actual profile.
+        prompt = f"""You are an expert career advisor evaluating a student resume. Provide:
+
+1. Overall Score (0-100) based on:
+   - Skills relevance and depth (30%)
+   - Project quality and impact (25%)
+   - Experience relevance (20%)
+   - Education and achievements (15%)
+   - Resume presentation (10%)
+
+2. Detailed Strengths (3-5 specific points)
+3. Critical Gaps (3-5 areas needing improvement)
+4. Actionable Recommendations (3-5 specific next steps)
+5. Competitive Analysis (how they compare to peers)
 
 STUDENT PROFILE:
 - Education: {year} {degree} in {major}
@@ -383,36 +395,12 @@ STUDENT PROFILE:
 - Projects/Experience: {exp_count} entries
 - Achievements: {achievement_count} items
 
-FULL RESUME TEXT:
-{resume_text}
+Resume Content:
+{resume_text[:3000]}
 
-Provide a CUSTOMIZED evaluation in this EXACT JSON format:
-{{
-  "grade": "A+",
-  "summary": "Write a SPECIFIC 2-3 sentence summary mentioning their actual degree, major, year, key skills, and experience level. Make it personal, not generic.",
-  "strengths": ["Specific strength 1 with actual details", "Specific strength 2 with actual details", "Specific strength 3 with actual details"],
-  "improvements": ["Specific actionable improvement 1", "Specific actionable improvement 2"]
-}}
+Return as JSON with fields: overall_score, strengths[], gaps[], recommendations[], competitive_position, grade, summary
 
-GRADING CRITERIA (Be strict and realistic):
-- A+ (95-100): Exceptional - Multiple impressive projects, strong CGPA (>8.5), diverse tech stack, notable achievements, internship experience
-- A (90-94): Excellent - Good projects with measurable impact, strong academics (>8.0), solid skills, some achievements
-- A- (85-89): Very Good - 2-3 quality projects, good CGPA (>7.5), relevant skills, clear career direction
-- B+ (80-84): Good - 1-2 decent projects, average+ CGPA (>7.0), some relevant skills, shows initiative
-- B (75-79): Decent - Basic projects, average CGPA (>6.5), limited skills, needs more experience
-- B- (70-74): Below Average - Minimal projects, weak CGPA (<6.5), few skills, needs significant work
-- C+ (65-69): Weak - Almost no practical experience, poor academics, very limited skills
-- C or below (60-64): Needs Major Improvement - No projects, weak foundation, must rebuild from basics
-
-IMPORTANT:
-1. Mention their ACTUAL degree, major, and year in the summary (e.g., "As a second-year B.Tech Computer Science student...")
-2. Reference their SPECIFIC skills in strengths (e.g., "Strong Python and React.js expertise shown in projects")
-3. Call out ACTUAL gaps (e.g., "Add CI/CD experience" not just "Add more experience")
-4. Be honest about the grade - most student resumes are B/B+, not A+
-5. If CGPA is below 7.0, mention academics need improvement
-6. If no projects, that's a critical gap - state it clearly
-
-Return ONLY the JSON, no extra text."""
+Be honest about the grade - most student resumes are B/B+, not A+. Return ONLY the JSON, no extra text."""
         
         try:
             print("📊 Evaluating resume with Gemini...")
@@ -497,3 +485,145 @@ Return ONLY the JSON, no extra text."""
             summary_parts.append(f"{exp_count} experience entries")
         
         return '; '.join(summary_parts)
+    
+    
+    def calculate_eligibility_score(self, profile_data, opportunity_data):
+        """
+        Calculate precise eligibility score (0-100) with detailed breakdown
+        
+        Args:
+            profile_data: User profile dictionary
+            opportunity_data: Opportunity dictionary
+        
+        Returns:
+            Dictionary with total_score, breakdown, recommendation, missing_requirements
+        """
+        score_breakdown = {
+            'education_match': 0,      # 25 points
+            'skills_match': 0,         # 25 points
+            'experience_match': 0,     # 20 points
+            'deadline_feasibility': 0, # 15 points
+            'location_match': 0,       # 10 points
+            'other_criteria': 0        # 5 points
+        }
+        
+        # Education matching
+        profile_education = profile_data.get('education', {}).get('degree', '').lower()
+        opp_education = opportunity_data.get('education_requirement', '').lower()
+        
+        if 'any' in opp_education or not opp_education:
+            score_breakdown['education_match'] = 25
+        elif profile_education in opp_education:
+            score_breakdown['education_match'] = 25
+        elif 'bachelor' in profile_education and 'bachelor' in opp_education:
+            score_breakdown['education_match'] = 20
+        else:
+            score_breakdown['education_match'] = 10
+        
+        # Skills matching
+        profile_skills_dict = profile_data.get('skills', {})
+        profile_skills = set()
+        if isinstance(profile_skills_dict, dict):
+            # Flatten all skill categories
+            for skill_list in profile_skills_dict.values():
+                if isinstance(skill_list, list):
+                    profile_skills.update(skill.lower() for skill in skill_list)
+        
+        required_skills = set(skill.lower() for skill in opportunity_data.get('required_skills', []))
+        
+        if required_skills:
+            skills_match_percentage = len(profile_skills & required_skills) / len(required_skills)
+            score_breakdown['skills_match'] = int(25 * skills_match_percentage)
+        else:
+            score_breakdown['skills_match'] = 20
+        
+        # Experience matching
+        profile_experience = len(profile_data.get('experience', []))
+        required_experience = opportunity_data.get('experience_years', 0)
+        
+        if profile_experience >= required_experience:
+            score_breakdown['experience_match'] = 20
+        elif profile_experience >= required_experience * 0.5:
+            score_breakdown['experience_match'] = 15
+        else:
+            score_breakdown['experience_match'] = 5
+        
+        # Deadline feasibility
+        deadline = opportunity_data.get('deadline')
+        if deadline:
+            try:
+                from datetime import datetime, timedelta
+                deadline_date = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+                days_until = (deadline_date - datetime.now()).days
+                
+                if days_until > 30:
+                    score_breakdown['deadline_feasibility'] = 15
+                elif days_until > 14:
+                    score_breakdown['deadline_feasibility'] = 10
+                elif days_until > 7:
+                    score_breakdown['deadline_feasibility'] = 5
+                else:
+                    score_breakdown['deadline_feasibility'] = 0
+            except:
+                score_breakdown['deadline_feasibility'] = 10
+        else:
+            score_breakdown['deadline_feasibility'] = 10
+        
+        # Location matching
+        profile_location = profile_data.get('location', '').lower()
+        opp_location = opportunity_data.get('location', '').lower()
+        
+        if 'remote' in opp_location or 'online' in opp_location:
+            score_breakdown['location_match'] = 10
+        elif profile_location in opp_location:
+            score_breakdown['location_match'] = 10
+        else:
+            score_breakdown['location_match'] = 5
+        
+        # Other criteria
+        score_breakdown['other_criteria'] = 5
+        
+        total_score = sum(score_breakdown.values())
+        
+        return {
+            'total_score': total_score,
+            'breakdown': score_breakdown,
+            'recommendation': self._get_recommendation(total_score),
+            'missing_requirements': self._identify_gaps(profile_data, opportunity_data)
+        }
+    
+    
+    def _get_recommendation(self, score):
+        """Get recommendation based on score"""
+        if score >= 80:
+            return "Strong Match - Highly Recommended"
+        elif score >= 60:
+            return "Good Match - Recommended"
+        elif score >= 40:
+            return "Moderate Match - Consider After Improvements"
+        else:
+            return "Weak Match - Focus on Better-Fitting Opportunities"
+    
+    
+    def _identify_gaps(self, profile_data, opportunity_data):
+        """Identify missing requirements"""
+        gaps = []
+        
+        # Check skills gaps
+        profile_skills_dict = profile_data.get('skills', {})
+        profile_skills = set()
+        if isinstance(profile_skills_dict, dict):
+            for skill_list in profile_skills_dict.values():
+                if isinstance(skill_list, list):
+                    profile_skills.update(skill.lower() for skill in skill_list)
+        
+        required_skills = set(skill.lower() for skill in opportunity_data.get('required_skills', []))
+        missing_skills = required_skills - profile_skills
+        
+        if missing_skills:
+            gaps.append({
+                'category': 'Skills',
+                'missing': list(missing_skills)
+            })
+        
+        return gaps
