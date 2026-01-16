@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Paperclip, X, AlertCircle } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import './AIChatbot.css';
+import { trackChatMessage } from '../utils/gamification';
 
 function AIChatbot({ userId, context }) {
   const [messages, setMessages] = useState([]);
@@ -89,6 +91,9 @@ function AIChatbot({ userId, context }) {
       if (fileData) {
         payload.attached_file = fileData;
       }
+
+      // Track chat message for gamification
+      trackChatMessage(messageText.length);
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/chat`, {
         method: 'POST',
@@ -182,8 +187,23 @@ function AIChatbot({ userId, context }) {
                 <div className="message-avatar">
                   {msg.role === 'user' ? '👤' : '🤖'}
                 </div>
-                <div className="message-content" style={{ whiteSpace: 'pre-wrap' }}>
-                  {msg.content}
+                <div className="message-content">
+                  {msg.role === 'assistant' ? (
+                    <ReactMarkdown
+                      components={{
+                        h3: ({node, ...props}) => <h3 style={{marginTop: '10px', marginBottom: '5px'}} {...props} />,
+                        ul: ({node, ...props}) => <ul style={{marginLeft: '20px', marginBottom: '10px'}} {...props} />,
+                        ol: ({node, ...props}) => <ol style={{marginLeft: '20px', marginBottom: '10px'}} {...props} />,
+                        li: ({node, ...props}) => <li style={{marginBottom: '5px'}} {...props} />,
+                        p: ({node, ...props}) => <p style={{marginBottom: '8px'}} {...props} />,
+                        strong: ({node, ...props}) => <strong style={{fontWeight: '600'}} {...props} />
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
+                  ) : (
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                  )}
                 </div>
               </div>
             ))}

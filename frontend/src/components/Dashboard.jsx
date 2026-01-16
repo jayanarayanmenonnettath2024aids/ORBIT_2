@@ -6,15 +6,57 @@ import ApplicationTracker from './ApplicationTracker';
 import AIChatbot from './AIChatbot';
 import AnalyticsDashboard from './AnalyticsDashboard';
 import GamificationDisplay from './GamificationDisplay';
-import { FileText, Search, Sparkles, ClipboardList, RefreshCw, BarChart3 } from 'lucide-react';
+import SuccessStories from './SuccessStories';
+import { FileText, Search, Sparkles, ClipboardList, RefreshCw, BarChart3, Trophy, LogOut } from 'lucide-react';
+import { updateLoginStreak } from '../utils/gamification';
+import { logoutUser } from '../services/api';
 
 function Dashboard({ profile, setProfile, opportunities, setOpportunities }) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('explore'); // Start with explore if profile exists
   const [showUpdateProfile, setShowUpdateProfile] = useState(false);
+  const [showGreeting, setShowGreeting] = useState(true);
   
-  // Get user ID from localStorage or profile
-  const userId = localStorage.getItem('userId') || profile?.profile_id || 'default-user';
+  // Get user ID and name from localStorage or profile
+  const userId = localStorage.getItem('user_id') || profile?.profile_id || 'default-user';
+  const userName = localStorage.getItem('user_name') || profile?.personal_info?.name || 'there';
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+      // Clear all localStorage
+      localStorage.removeItem('session_token');
+      localStorage.removeItem('user_id');
+      localStorage.removeItem('user_email');
+      localStorage.removeItem('user_name');
+      localStorage.removeItem('userProfile');
+      sessionStorage.clear();
+      // Navigate to landing page
+      navigate('/');
+    } catch (err) {
+      console.error('Logout error:', err);
+      // Still clear localStorage and navigate even if API call fails
+      localStorage.clear();
+      sessionStorage.clear();
+      navigate('/');
+    }
+  };
+
+  // Show greeting on first load
+  useEffect(() => {
+    const hasShownGreeting = sessionStorage.getItem('hasShownGreeting');
+    if (!hasShownGreeting) {
+      sessionStorage.setItem('hasShownGreeting', 'true');
+      // Auto-hide greeting after 8 seconds
+      setTimeout(() => setShowGreeting(false), 8000);
+    } else {
+      setShowGreeting(false);
+    }
+    
+    // Update login streak on dashboard load
+    updateLoginStreak();
+  }, []);
 
   // Load profile from localStorage on mount
   useEffect(() => {
@@ -45,6 +87,29 @@ function Dashboard({ profile, setProfile, opportunities, setOpportunities }) {
   return (
     <div className="dashboard">
       <div className="container">
+        {/* Personalized Greeting Banner */}
+        {showGreeting && (
+          <div style={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            padding: '20px 30px',
+            borderRadius: '12px',
+            marginBottom: '20px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            animation: 'slideDown 0.5s ease-out'
+          }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '24px', fontWeight: '600' }}>
+              👋 Hi {userName}!
+            </h3>
+            <p style={{ margin: '0 0 12px 0', opacity: 0.95 }}>
+              Welcome back! Ready to discover new opportunities?
+            </p>
+            <p style={{ margin: 0, fontSize: '14px', opacity: 0.9 }}>
+              💡 <strong>Quick tip:</strong> Check your Application Tracker to see how your applications are progressing!
+            </p>
+          </div>
+        )}
+        
         {/* Welcome Section */}
         <div className="welcome-section">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -54,10 +119,37 @@ function Dashboard({ profile, setProfile, opportunities, setOpportunities }) {
                 Welcome to Your Opportunity Journey
               </h2>
               <p className="welcome-text">
-                This system doesn't just tell you if you're eligible—it shows you the path to become eligible.
+                This system doesn't just tell you if you're eligible it shows you the path to become eligible.
               </p>
-            </div>
-            {profile && (
+            </div>            <button 
+              onClick={handleLogout}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 20px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: '500',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 2px 8px rgba(102, 126, 234, 0.3)'
+              }}
+              onMouseOver={(e) => {
+                e.target.style.transform = 'translateY(-2px)';
+                e.target.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+              }}
+              onMouseOut={(e) => {
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)';
+              }}
+            >
+              <LogOut size={18} />
+              Logout
+            </button>            {profile && (
               <button
                 className="btn btn-secondary"
                 onClick={() => {
@@ -108,6 +200,14 @@ function Dashboard({ profile, setProfile, opportunities, setOpportunities }) {
             <BarChart3 className="icon-sm" />
             Analytics & Rankings
           </button>
+          <button
+            className={`tab-button ${activeTab === 'success' ? 'active' : ''}`}
+            onClick={() => setActiveTab('success')}
+            disabled={!profile}
+          >
+            <Trophy className="icon-sm" />
+            Success Stories
+          </button>
         </div>
 
         {/* Gamification Bar */}
@@ -140,6 +240,10 @@ function Dashboard({ profile, setProfile, opportunities, setOpportunities }) {
 
           {activeTab === 'analytics' && profile && (
             <AnalyticsDashboard userId={userId} />
+          )}
+
+          {activeTab === 'success' && profile && (
+            <SuccessStories />
           )}
         </div>
 

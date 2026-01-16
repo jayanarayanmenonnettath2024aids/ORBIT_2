@@ -1,3 +1,29 @@
+/* Disclaimer Banner */
+.gamification-disclaimer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  color: #78350f;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.3);
+}
+
+.disclaimer-icon {
+  font-size: 1.2rem;
+}
+
+.disclaimer-text {
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.disclaimer-text strong {
+  color: #451a03;
+}
+
 .gamification-bar {
   display: flex;
   align-items: center;
@@ -245,6 +271,15 @@
   color: white;
 }
 
+.leaderboard-separator {
+  text-align: center;
+  padding: 12px 0;
+  color: #94a3b8;
+  font-size: 1.2rem;
+  letter-spacing: 4px;
+  opacity: 0.6;
+}
+
 .lb-rank {
   font-size: 1.5rem;
   font-weight: 600;
@@ -271,6 +306,166 @@
   font-size: 1.1rem;
 }
 
+/* Tasks Section */
+.tasks-section {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.tasks-heading {
+  font-size: 1.1rem;
+  margin: 1.5rem 0 1rem 0;
+  color: #4a5568;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tasks-heading:first-child {
+  margin-top: 0;
+}
+
+.tasks-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.task-card {
+  background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem;
+  transition: all 0.3s;
+}
+
+.task-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.task-card.completed {
+  background: linear-gradient(135deg, #d4f4dd 0%, #b7e4c7 100%);
+  border-color: #22c55e;
+  opacity: 0.8;
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.task-title {
+  font-weight: 600;
+  color: #2d3748;
+  font-size: 1rem;
+}
+
+.task-badge {
+  background: #22c55e;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.task-description {
+  color: #718096;
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+
+.task-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.task-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.task-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+  border-radius: 10px;
+  transition: width 0.3s ease;
+}
+
+.task-progress-fill.weekly {
+  background: linear-gradient(90deg, #8b5cf6 0%, #7c3aed 100%);
+}
+
+.task-progress-text {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #4a5568;
+  min-width: 50px;
+}
+
+.task-reward {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  display: inline-block;
+}
+
+.task-reward.weekly {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+}
+
+.tasks-stats {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 2px solid #e2e8f0;
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.stat-label {
+  color: #718096;
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+/* Achievement Rarity */
+.achievement-rarity {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-top: 0.5rem;
+}
+
+/* Large Modal */
+.modal-content.large {
+  max-width: 900px;
+  max-height: 85vh;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .gamification-bar {
@@ -285,5 +480,14 @@
 
   .achievements-grid {
     grid-template-columns: 1fr;
+  }
+  
+  .modal-content.large {
+    max-width: 95%;
+  }
+  
+  .tasks-stats {
+    flex-direction: column;
+    gap: 1rem;
   }
 }

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { loginUser, registerUser } from '../services/api';
+import './Auth.css';
 
 function Auth() {
   const navigate = useNavigate();
@@ -15,6 +16,31 @@ function Auth() {
     password: ''
   });
 
+  // Show toast notification
+  const showToast = (message, type = 'success') => {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: ${type === 'success' ? '#10b981' : '#ef4444'};
+      color: white;
+      padding: 16px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      font-weight: 500;
+      animation: slideIn 0.3s ease-out;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => document.body.removeChild(toast), 300);
+    }, 3000);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -27,15 +53,23 @@ function Auth() {
         // Login
         result = await loginUser(formData.email, formData.password);
         
-        // Store session token
+        // Store session token and user info
         localStorage.setItem('session_token', result.session_token);
         localStorage.setItem('user_id', result.user_id);
         localStorage.setItem('user_email', result.email);
+        localStorage.setItem('user_name', result.name || formData.email.split('@')[0]);
         
         console.log('✓ Login successful:', result);
         
+        // Show success notifications
+        showToast('✅ Login successful!', 'success');
+        setTimeout(() => {
+          const streak = result.login_streak || 1;
+          showToast(`🔥 Streak: ${streak} day${streak > 1 ? 's' : ''}!`, 'success');
+        }, 1500);
+        
         // Navigate to dashboard
-        navigate('/dashboard');
+        setTimeout(() => navigate('/dashboard'), 2500);
       } else {
         // Register
         result = await registerUser(formData.email, formData.password, formData.name);

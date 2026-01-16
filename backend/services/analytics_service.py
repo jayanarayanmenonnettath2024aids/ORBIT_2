@@ -1,9 +1,10 @@
 """
-Analytics Service - User statistics, peer comparison, and insights
+Analytics Service - User statistics, peer comparison, and insights with synthetic data
 """
 
 from datetime import datetime, timedelta
 from collections import defaultdict
+from .synthetic_data_service import SyntheticDataService
 
 
 class AnalyticsService:
@@ -22,9 +23,27 @@ class AnalyticsService:
             
             applications = [doc.to_dict() for doc in apps]
             
-            # Get gamification data
+            # Get gamification data - initialize if doesn't exist
             gami_doc = self.db.collection('gamification').document(user_id).get()
-            gami_data = gami_doc.to_dict() if gami_doc.exists else {}
+            if gami_doc.exists:
+                gami_data = gami_doc.to_dict()
+            else:
+                # Initialize empty gamification data for new users
+                gami_data = {
+                    'total_points': 0,
+                    'level': 1,
+                    'login_streak': 0,
+                    'achievements': [],
+                    'actions': {
+                        'searches': 0,
+                        'eligibility_checks': 0,
+                        'tracker_saves': 0,
+                        'applications': 0,
+                        'chat_messages': 0,
+                        'high_score_apps': 0,
+                        'acceptances': 0
+                    }
+                }
             
             # Calculate statistics
             stats = self._calculate_statistics(applications, gami_data)
@@ -45,28 +64,57 @@ class AnalyticsService:
             
         except Exception as e:
             print(f"Error getting analytics: {e}")
-            return None
+            import traceback
+            traceback.print_exc()
+            # Return empty analytics instead of None
+            return {
+                'user_id': user_id,
+                'statistics': {
+                    'total_applications': 0,
+                    'pending': 0,
+                    'under_review': 0,
+                    'accepted': 0,
+                    'rejected': 0,
+                    'applications_7d': 0,
+                    'applications_30d': 0,
+                    'avg_eligibility_score': 0,
+                    'acceptance_rate': 0,
+                    'categories': {},
+                    'monthly_trend': {},
+                    'total_points': 0,
+                    'level': 1,
+                    'login_streak': 0,
+                    'achievements_count': 0,
+                    'searches': 0,
+                    'eligibility_checks': 0
+                },
+                'timeline': [],
+                'peer_comparison': None,
+                'generated_at': datetime.now().isoformat()
+            }
     
     def get_leaderboard_stats(self, user_id):
         """Get user's rank and surrounding users"""
         try:
             # Get all users sorted by points
-            all_users = self.db.collection('gamification')\
+            all_users = list(self.db.collection('gamification')\
                 .order_by('total_points', direction='DESCENDING')\
-                .stream()
+                .stream())
             
             user_rank = None
-            total_users = 0
+            total_users = len(all_users)
             user_points = 0
             
             for rank, doc in enumerate(all_users, 1):
-                total_users = rank
                 if doc.id == user_id:
                     user_rank = rank
                     user_points = doc.to_dict()['total_points']
+                    break
             
+            # If user not found in leaderboard, they're at the bottom
             if not user_rank:
-                return None
+                user_rank = total_users + 1
+                user_points = 0
             
             # Get surrounding users (3 above, 3 below)
             surrounding = self.db.collection('gamification')\
@@ -173,11 +221,11 @@ class AnalyticsService:
             # Peer comparison
             peer_stats = analytics['peer_comparison']
             if peer_stats:
-                if peer_stats['points_percentile'] > 75:
+                if peer_stats['percentile'] > 75:
                     insights.append({
                         'type': 'success',
                         'icon': '🏆',
-                        'message': f"You're in the top {100 - peer_stats['points_percentile']:.0f}% of users!",
+                        'message': f"You're in the top {100 - peer_stats['percentile']:.0f}% of users!",
                         'priority': 'high'
                     })
             
@@ -218,7 +266,15 @@ class AnalyticsService:
                 total_score += score
             
             # Time-based counts
-            created = datetime.fromisoformat(app.get('created_at', now.isoformat()))
+            created_at_val = app.get('created_at', now.isoformat())
+            # Handle both string and datetime/Timestamp objects
+            if isinstance(created_at_val, str):
+                created = datetime.fromisoformat(created_at_val)
+            elif hasattr(created_at_val, 'isoformat'):
+                created = created_at_val if isinstance(created_at_val, datetime) else created_at_val.to_pydatetime()
+            else:
+                created = now
+            
             if created >= seven_days_ago:
                 stats['applications_7d'] += 1
             if created >= thirty_days_ago:
@@ -285,44 +341,115 @@ class AnalyticsService:
         return timeline[:20]
     
     def _get_peer_comparison(self, user_id, user_stats):
-        """Compare user statistics with peers"""
+        """Compare user statistics with real database peer data (including synthetic)"""
         try:
-            # Get all users' gamification data
-            all_users = list(self.db.collection('gamification').stream())
+            # Get all users from database (real + synthetic)
+            all_gami_docs = list(self.db.collection('gamification').stream())
             
-            if len(all_users) < 2:
-                return None
+            if len(all_gami_docs) < 2:
+                # Fallback to synthetic generation if database is empty
+                user_data = {
+                    'user_id': user_id,
+                    'total_points': user_stats.get('total_points', 0),
+                    'level': user_stats.get('level', 1),
+                    'login_streak': user_stats.get('login_streak', 0),
+                    'actions': {
+                        'searches': user_stats.get('searches', 0),
+                        'eligibility_checks': user_stats.get('eligibility_checks', 0),
+                        'tracker_saves': user_stats.get('tracker_saves', 0),
+                        'applications': user_stats.get('applications', 0),
+                        'chat_messages': user_stats.get('chat_messages', 0)
+                    },
+                    'total_applications': user_stats.get('total_applications', 0)
+                }
+                return SyntheticDataService.calculate_synthetic_peer_stats(user_data)
+            
+            # Use real database data
+            all_users = []
+            for doc in all_gami_docs:
+                data = doc.to_dict()
+                user_obj = {
+                    'user_id': doc.id,
+                    'name': 'Unknown',
+                    'college': 'Unknown',
+                    'total_points': data.get('total_points', 0),
+                    'level': data.get('level', 1),
+                    'login_streak': data.get('login_streak', 0),
+                    'actions': data.get('actions', {}),
+                    'achievements_count': len(data.get('achievements', [])),
+                    'is_synthetic': data.get('is_synthetic', False)
+                }
+                
+                # Get name and college from profile
+                try:
+                    profile_doc = self.db.collection('profiles').document(doc.id).get()
+                    if profile_doc.exists:
+                        profile = profile_doc.to_dict()
+                        user_obj['name'] = profile.get('personal_info', {}).get('name', 'Unknown')
+                        user_obj['college'] = profile.get('education', {}).get('institution', 'Unknown')
+                except:
+                    pass
+                
+                all_users.append(user_obj)
+            
+            # Sort by points
+            all_users.sort(key=lambda x: x['total_points'], reverse=True)
+            
+            # Find user rank
+            user_rank = next((i+1 for i, u in enumerate(all_users) 
+                             if u['user_id'] == user_id), None)
+            
+            if not user_rank:
+                user_rank = len(all_users) + 1
             
             # Calculate averages
-            total_points = [doc.to_dict()['total_points'] for doc in all_users]
-            avg_points = sum(total_points) / len(total_points)
+            avg_points = sum(u['total_points'] for u in all_users) / len(all_users) if all_users else 0
+            avg_streak = sum(u['login_streak'] for u in all_users) / len(all_users) if all_users else 0
             
-            # Calculate percentiles
-            user_points = user_stats['total_points']
-            users_below = sum(1 for p in total_points if p < user_points)
-            points_percentile = (users_below / len(total_points)) * 100
+            # Get application counts
+            avg_applications = 0
+            try:
+                all_apps = list(self.db.collection('applications').stream())
+                app_counts = {}
+                for app in all_apps:
+                    app_user_id = app.to_dict().get('user_id')
+                    app_counts[app_user_id] = app_counts.get(app_user_id, 0) + 1
+                
+                if app_counts:
+                    avg_applications = sum(app_counts.values()) / len(app_counts)
+            except:
+                pass
             
-            # Get peer averages
-            peer_apps = []
-            for doc in all_users:
-                if doc.id != user_id:
-                    user_apps = self.db.collection('applications')\
-                        .where('user_id', '==', doc.id)\
-                        .stream()
-                    peer_apps.extend([a.to_dict() for a in user_apps])
-            
-            avg_peer_apps = len(peer_apps) / (len(all_users) - 1) if len(all_users) > 1 else 0
+            # Calculate percentile
+            users_below = sum(1 for u in all_users if u['total_points'] < user_stats.get('total_points', 0))
+            percentile = (users_below / len(all_users)) * 100 if all_users else 0
             
             return {
                 'total_users': len(all_users),
+                'user_rank': user_rank,
+                'percentile': round(percentile, 1),
                 'avg_points': round(avg_points, 0),
-                'your_points': user_points,
-                'points_percentile': round(points_percentile, 1),
-                'avg_applications': round(avg_peer_apps, 1),
-                'your_applications': user_stats['total_applications'],
-                'performance_vs_peers': 'above' if user_points > avg_points else 'below'
+                'your_points': user_stats.get('total_points', 0),
+                'avg_applications': round(avg_applications, 1),
+                'your_applications': user_stats.get('total_applications', 0),
+                'avg_streak': round(avg_streak, 1),
+                'your_streak': user_stats.get('login_streak', 0),
+                'performance_vs_peers': 'above_average' if user_stats.get('total_points', 0) > avg_points else 'below_average',
+                'top_users': [
+                    {
+                        'rank': i+1,
+                        'name': u['name'],
+                        'college': u.get('college', 'Unknown'),
+                        'points': u['total_points'],
+                        'level': u['level'],
+                        'is_you': u['user_id'] == user_id
+                    }
+                    for i, u in enumerate(all_users[:10])
+                ]
             }
             
         except Exception as e:
             print(f"Error calculating peer comparison: {e}")
+            import traceback
+            traceback.print_exc()
             return None

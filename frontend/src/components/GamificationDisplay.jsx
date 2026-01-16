@@ -5,7 +5,9 @@ function GamificationDisplay({ userId }) {
   const [gamification, setGamification] = useState(null);
   const [showAchievements, setShowAchievements] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showTasks, setShowTasks] = useState(false);
   const [leaderboard, setLeaderboard] = useState([]);
+  const [showSeparator, setShowSeparator] = useState(false);
 
   useEffect(() => {
     fetchGamification();
@@ -27,10 +29,11 @@ function GamificationDisplay({ userId }) {
   const fetchLeaderboard = async () => {
     try {
       const apiUrl = import.meta.env.VITE_API_URL;
-      const response = await fetch(`${apiUrl}/gamification/leaderboard?limit=10`);
+      const response = await fetch(`${apiUrl}/gamification/leaderboard?user_id=${userId}&top=10`);
       if (response.ok) {
         const data = await response.json();
-        setLeaderboard(data);
+        setLeaderboard(data.leaderboard || data);
+        setShowSeparator(data.show_separator || false);
         setShowLeaderboard(true);
       }
     } catch (error) {
@@ -42,8 +45,24 @@ function GamificationDisplay({ userId }) {
     return null;
   }
 
+  const rarityColors = {
+    common: '#94a3b8',
+    uncommon: '#22c55e',
+    rare: '#3b82f6',
+    epic: '#a855f7',
+    legendary: '#eab308'
+  };
+
   return (
     <>
+      {/* Disclaimer Banner */}
+      <div className="gamification-disclaimer">
+        <span className="disclaimer-icon">⚠️</span>
+        <span className="disclaimer-text">
+          <strong>Fair Play Policy:</strong> Earn points through genuine actions. Cheating or gaming the system may result in point deduction or account suspension.
+        </span>
+      </div>
+
       {/* Compact Gamification Bar */}
       <div className="gamification-bar">
         <div className="gami-level" title={`Level ${gamification.level}: ${gamification.level_name}`}>
@@ -60,7 +79,10 @@ function GamificationDisplay({ userId }) {
           <div className="progress-bar">
             <div
               className="progress-fill"
-              style={{ width: `${gamification.progress_to_next}%` }}
+              style={{ 
+                width: `${gamification.progress_to_next}%`,
+                background: gamification.level_color || '#6366f1'
+              }}
             />
           </div>
           {gamification.next_level && (
@@ -73,6 +95,11 @@ function GamificationDisplay({ userId }) {
           <span className="streak-text">{gamification.login_streak}</span>
         </div>
 
+        <button className="gami-tasks-btn" onClick={() => setShowTasks(true)}>
+          <span>✅</span>
+          <span>Tasks</span>
+        </button>
+
         <button className="gami-achievements-btn" onClick={() => setShowAchievements(true)}>
           <span>🏆</span>
           <span>{gamification.achievements_count}</span>
@@ -84,25 +111,103 @@ function GamificationDisplay({ userId }) {
         </button>
       </div>
 
+      {/* Tasks Modal */}
+      {showTasks && (
+        <div className="modal-overlay" onClick={() => setShowTasks(false)}>
+          <div className="modal-content large" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>✅ Daily & Weekly Tasks</h2>
+              <button className="modal-close" onClick={() => setShowTasks(false)}>×</button>
+            </div>
+            
+            <div className="tasks-section">
+              <h3 className="tasks-heading">📅 Daily Tasks (Reset at Midnight)</h3>
+              <div className="tasks-list">
+                {gamification.daily_tasks?.map((task) => (
+                  <div key={task.id} className={`task-card ${task.completed ? 'completed' : ''}`}>
+                    <div className="task-header">
+                      <div className="task-title">{task.title}</div>
+                      {task.completed && <span className="task-badge">✓ Completed</span>}
+                    </div>
+                    <div className="task-description">{task.description}</div>
+                    <div className="task-progress">
+                      <div className="task-progress-bar">
+                        <div 
+                          className="task-progress-fill"
+                          style={{ width: `${task.percentage}%` }}
+                        />
+                      </div>
+                      <span className="task-progress-text">
+                        {task.progress}/{task.target}
+                      </span>
+                    </div>
+                    <div className="task-reward">+{task.points} pts</div>
+                  </div>
+                ))}
+              </div>
+
+              <h3 className="tasks-heading">📆 Weekly Tasks (Reset on Monday)</h3>
+              <div className="tasks-list">
+                {gamification.weekly_tasks?.map((task) => (
+                  <div key={task.id} className={`task-card ${task.completed ? 'completed' : ''}`}>
+                    <div className="task-header">
+                      <div className="task-title">{task.title}</div>
+                      {task.completed && <span className="task-badge">✓ Completed</span>}
+                    </div>
+                    <div className="task-description">{task.description}</div>
+                    <div className="task-progress">
+                      <div className="task-progress-bar">
+                        <div 
+                          className="task-progress-fill weekly"
+                          style={{ width: `${task.percentage}%` }}
+                        />
+                      </div>
+                      <span className="task-progress-text">
+                        {task.progress}/{task.target}
+                      </span>
+                    </div>
+                    <div className="task-reward weekly">+{task.points} pts</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="tasks-stats">
+                <div className="stat-item">
+                  <div className="stat-value">{gamification.tasks_completed_total}</div>
+                  <div className="stat-label">Tasks Completed</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Achievements Modal */}
       {showAchievements && (
         <div className="modal-overlay" onClick={() => setShowAchievements(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content large" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>🏆 Achievements</h2>
               <button className="modal-close" onClick={() => setShowAchievements(false)}>×</button>
             </div>
             <div className="achievements-grid">
               {gamification.achievements.map((achievement) => (
-                <div key={achievement.id} className="achievement-card earned">
+                <div 
+                  key={achievement.id} 
+                  className="achievement-card earned"
+                  style={{ borderColor: rarityColors[achievement.rarity] || '#6366f1' }}
+                >
                   <div className="achievement-icon">{achievement.icon}</div>
                   <div className="achievement-name">{achievement.name}</div>
                   <div className="achievement-desc">{achievement.description}</div>
+                  <div className="achievement-rarity" style={{ color: rarityColors[achievement.rarity] }}>
+                    {achievement.rarity?.toUpperCase()}
+                  </div>
                   <div className="achievement-points">+{achievement.points} pts</div>
                 </div>
               ))}
               {gamification.achievements.length === 0 && (
-                <p className="no-achievements">No achievements yet. Keep exploring opportunities!</p>
+                <p className="no-achievements">No achievements yet. Complete tasks and explore opportunities to earn badges!</p>
               )}
             </div>
           </div>
@@ -119,24 +224,32 @@ function GamificationDisplay({ userId }) {
             </div>
             <div className="leaderboard-list">
               {leaderboard.map((user, idx) => (
-                <div
-                  key={user.user_id}
-                  className={`leaderboard-item ${user.user_id === userId ? 'current-user' : ''} ${idx < 3 ? 'top-3' : ''}`}
-                >
-                  <div className="lb-rank">
-                    {idx === 0 && '🥇'}
-                    {idx === 1 && '🥈'}
-                    {idx === 2 && '🥉'}
-                    {idx > 2 && `#${user.rank}`}
-                  </div>
-                  <div className="lb-info">
-                    <div className="lb-name">{user.name}</div>
-                    <div className="lb-level">
-                      {user.level_icon} {user.level_name} • {user.achievements_count} achievements
+                <>
+                  {/* Show separator before current user if they're not in top 10 */}
+                  {showSeparator && idx === 10 && (
+                    <div key="separator" className="leaderboard-separator">
+                      <span>• • •</span>
                     </div>
+                  )}
+                  <div
+                    key={user.user_id}
+                    className={`leaderboard-item ${user.user_id === userId ? 'current-user' : ''} ${idx < 3 ? 'top-3' : ''}`}
+                  >
+                    <div className="lb-rank">
+                      {idx === 0 && '🥇'}
+                      {idx === 1 && '🥈'}
+                      {idx === 2 && '🥉'}
+                      {idx > 2 && `#${user.rank}`}
+                    </div>
+                    <div className="lb-info">
+                      <div className="lb-name">{user.name}</div>
+                      <div className="lb-level">
+                        {user.level_icon} {user.level_name} • {user.achievements_count} achievements
+                      </div>
+                    </div>
+                    <div className="lb-points">{user.points} pts</div>
                   </div>
-                  <div className="lb-points">{user.points} pts</div>
-                </div>
+                </>
               ))}
             </div>
           </div>

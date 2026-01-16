@@ -349,20 +349,33 @@ class FirebaseService:
                 # Convert Firestore timestamps to ISO strings for JSON serialization
                 if 'created_at' in app_data and app_data['created_at']:
                     try:
-                        app_data['created_at'] = app_data['created_at'].isoformat()
-                    except:
+                        # Check if it's already a string
+                        if not isinstance(app_data['created_at'], str):
+                            app_data['created_at'] = app_data['created_at'].isoformat()
+                    except Exception as e:
+                        print(f"Warning: Could not convert created_at: {e}")
                         app_data['created_at'] = None
                         
                 if 'updated_at' in app_data and app_data['updated_at']:
                     try:
-                        app_data['updated_at'] = app_data['updated_at'].isoformat()
-                    except:
+                        # Check if it's already a string
+                        if not isinstance(app_data['updated_at'], str):
+                            app_data['updated_at'] = app_data['updated_at'].isoformat()
+                    except Exception as e:
+                        print(f"Warning: Could not convert updated_at: {e}")
                         app_data['updated_at'] = None
                         
                 applications.append(app_data)
             
             # Sort by created_at in Python (descending - newest first)
-            applications.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            # Use empty string as default for None values to avoid comparison errors
+            try:
+                applications.sort(key=lambda x: str(x.get('created_at') or ''), reverse=True)
+            except Exception as sort_error:
+                print(f"Warning: Sort failed: {sort_error}. Returning unsorted applications")
+                # Print debug info
+                for app in applications:
+                    print(f"  App ID {app.get('id')}: created_at = {app.get('created_at')} (type: {type(app.get('created_at'))})")
             
             print(f"✓ Retrieved {len(applications)} applications for user {user_id}")
             return applications

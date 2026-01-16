@@ -18,14 +18,31 @@ class OpportunityService:
         """
         self.firebase = firebase_service
         
-        # Google Custom Search API credentials
-        self.search_api_key = os.getenv('GOOGLE_SEARCH_API_KEY')
-        self.search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
+        # Google Custom Search API credentials - Load all available keys
+        self.search_api_keys = []
+        for i in range(1, 10):  # Support up to 9 API keys
+            key_name = 'GOOGLE_SEARCH_API_KEY' if i == 1 else f'GOOGLE_SEARCH_API_KEY_{i}'
+            key_value = os.getenv(key_name)
+            if key_value:
+                self.search_api_keys.append(key_value)
         
-        if not self.search_api_key or not self.search_engine_id:
+        self.search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
+        self.current_key_index = 0  # Track which key we're using
+        
+        if not self.search_api_keys or not self.search_engine_id:
             print("⚠️  Warning: Google Search API credentials not configured")
+        else:
+            print(f"✓ Loaded {len(self.search_api_keys)} Google Search API key(s) for load balancing")
         
         self.search_url = "https://www.googleapis.com/customsearch/v1"
+    
+    def _get_next_api_key(self):
+        """Get next API key in rotation"""
+        if not self.search_api_keys:
+            return None
+        key = self.search_api_keys[self.current_key_index]
+        self.current_key_index = (self.current_key_index + 1) % len(self.search_api_keys)
+        return key
     
     
     def generate_personalized_suggestions(self, profile_data):
@@ -231,17 +248,21 @@ class OpportunityService:
         Returns:
             Search results dictionary
         """
-        if not self.search_api_key or not self.search_engine_id:
+        if not self.search_api_keys or not self.search_engine_id:
             print("⚠️  Missing API credentials - using mock data")
             return self._get_mock_search_results(query)
         
         try:
             all_items = []
             
-            # Fetch multiple pages for diverse results (5 pages = 50 results)
-            for start_index in [1, 11, 21, 31, 41]:
+            # Fetch 2 pages for diverse results (2 pages = 20 results)
+            # Reduced from 5 pages to save API quota
+            for start_index in [1, 11]:
+                # Get next API key in rotation
+                api_key = self._get_next_api_key()
+                
                 params = {
-                    'key': self.search_api_key,
+                    'key': api_key,
                     'cx': self.search_engine_id,
                     'q': f"{query} India",  # Add India filter
                     'num': num_results,
@@ -261,11 +282,24 @@ class OpportunityService:
                     items = result.get('items', [])
                     all_items.extend(items)
                     print(f"✅ Found {len(items)} results on page {start_index}")
+                    
+                    # Debug: Show API response if empty
+                    if not items and start_index == 1:
+                        print(f"⚠️  API Response: {result.get('searchInformation', {})}")
+                        error = result.get('error', {})
+                        if error:
+                            print(f"❌ API Error: {error.get('message', 'Unknown error')}")
+                            
                 elif response.status_code == 429:
                     print(f"⚠️  Rate limit hit, using {len(all_items)} results so far")
                     break
                 else:
                     print(f"⚠️  API returned status {response.status_code} for page {start_index}")
+                    try:
+                        error_detail = response.json()
+                        print(f"❌ Error details: {error_detail}")
+                    except:
+                        pass
                     # Continue to next page even if this one fails (unless it's the first page)
                     if start_index == 1:
                         print("❌ First page failed, stopping search")
@@ -347,7 +381,8 @@ class OpportunityService:
                 'eligibility_text': self._extract_eligibility(snippet),
                 'deadline': deadline or 'Not specified',
                 'apply_by': deadline or 'Not specified',
-                'opportunity_id': f"opp_{len(opportunities) + 1}"
+                'opportunity_id': f"opp_{idx}",  # Use index for consistent IDs
+                'url': link  # Add URL for ID generation
             }
             
             print(f"✅ Added #{idx}: {title[:50]}... (Score: {relevance_score})")
@@ -356,6 +391,37 @@ class OpportunityService:
         # Sort by relevance score
         opportunities.sort(key=lambda x: x['relevance_score'], reverse=True)
         print(f"📊 Results: {len(opportunities)} kept, {skipped_relevance} low relevance, {skipped_expired} expired")
+        
+        # Save opportunities to database for eligibility checking
+        try:
+            import hashlib
+            for opp in opportunities:
+                # Use URL hash as ID for consistency and deduplication
+                opp_id = hashlib.md5(opp['url'].encode()).hexdigest()[:12]
+                opp['id'] = opp_id
+                opp['opportunity_id'] = opp_id
+                
+                # Save to opportunities collection using firebase service
+                self.firebase.db.collection('opportunities').document(opp_id).set({
+                    'title': opp.get('title'),
+                    'link': opp.get('link'),
+                    'url': opp.get('url'),
+                    'description': opp.get('description'),
+                    'snippet': opp.get('snippet'),
+                    'source': opp.get('source'),
+                    'type': opp.get('type'),
+                    'organizer': opp.get('organizer'),
+                    'eligibility_text': opp.get('eligibility_text'),
+                    'deadline': opp.get('deadline'),
+                    'apply_by': opp.get('apply_by'),
+                    'relevance_score': opp.get('relevance_score'),
+                    'discovered_date': opp.get('discovered_date'),
+                    'created_at': datetime.now().isoformat(),
+                    'source_type': 'search',
+                    'is_cached': True
+                }, merge=True)
+        except Exception as e:
+            print(f"⚠️  Could not save opportunities to DB: {e}")
         
         return opportunities
     
@@ -629,49 +695,59 @@ class OpportunityService:
     def _get_mock_search_results(self, query):
         """
         Return mock search results for testing without API keys
-        Updated with RECENT January 2026 active hackathons with real deadlines
+        Updated with RECENT January 2026 active opportunities with future deadlines
         """
         return {
             'items': [
                 {
                     'title': 'Google AI Hackathon 2026 - Build with Gemini | Unstop',
                     'link': 'https://unstop.com/hackathons/google-ai-hackathon-2026',
-                    'snippet': 'Google AI Hackathon 2026 is now open! Build innovative AI solutions using Gemini API. Open to all students and developers. Eligibility: 18+ years, any background. Teams of 1-4 members. Prizes: ₹10 Lakhs + Google Cloud credits. Posted: January 5, 2026. Deadline: February 15, 2026.'
+                    'snippet': 'Google AI Hackathon 2026 is now open! Build innovative AI solutions using Gemini API. Open to all students and developers. Eligibility: 18+ years, any background. Teams of 1-4 members. Prizes: ₹10 Lakhs + Google Cloud credits. Deadline: March 15, 2026. Apply now on Unstop!'
                 },
                 {
                     'title': 'Smart India Hackathon 2026 - Grand Finale | SIH',
                     'link': 'https://www.sih.gov.in/',
-                    'snippet': 'Smart India Hackathon 2026 Grand Finale registrations open! Software and Hardware editions. Eligibility: Students enrolled in recognized institutions, teams of 6. Problem statements released January 2026. Internal hackathons: Feb-March 2026. Grand Finale: April 2026.'
-                },
-                {
-                    'title': 'HackWithInfy 2026 Season 5 - Infosys | Unstop',
-                    'link': 'https://unstop.com/hackathons/hackwithinfy-2026',
-                    'snippet': 'HackWithInfy Season 5 is live! Infosys flagship hackathon for engineering students. Eligibility: 2025/2026/2027 graduating B.E/B.Tech/M.E/M.Tech/MCA with 60%+ aggregate. Coding round: February 2026. Hackathon round: March 2026. Posted: January 8, 2026. Apply by: January 25, 2026.'
+                    'snippet': 'Smart India Hackathon 2026 Grand Finale registrations open! Software and Hardware editions. Eligibility: Students enrolled in recognized institutions, teams of 6. Problem statements released January 2026. Internal hackathons: Feb-March 2026. Grand Finale: April 2026. Registration deadline: February 20, 2026.'
                 },
                 {
                     'title': 'Microsoft Imagine Cup 2026 India Finals | Microsoft',
                     'link': 'https://imaginecup.microsoft.com/india',
-                    'snippet': 'Microsoft Imagine Cup 2026 India Round is accepting submissions! Categories: AI for Good, Gaming, Mixed Reality. Eligibility: Students 16+, teams up to 4. Build solutions addressing UN SDGs. India regional deadline: February 28, 2026. Winners advance to World Finals with $100K prize. Posted: December 20, 2025.'
-                },
-                {
-                    'title': 'Flipkart GRiD 6.0 - Engineering Challenge 2026 | Flipkart Careers',
-                    'link': 'https://unstop.com/hackathons/flipkart-grid-6',
-                    'snippet': 'Flipkart GRiD 6.0 registrations now open! India\'s biggest engineering campus challenge. Eligibility: B.E/B.Tech students graduating 2025/2026/2027, all branches. Level 1: Online test (Jan 20-25, 2026). Level 2: Hackathon (February 2026). Prizes: ₹5 Lakhs + PPIs. Posted: January 10, 2026.'
+                    'snippet': 'Microsoft Imagine Cup 2026 India Round is accepting submissions! Categories: AI for Good, Gaming, Mixed Reality. Eligibility: Students 16+, teams up to 4. Build solutions addressing UN SDGs. India regional deadline: March 31, 2026. Winners advance to World Finals with $100K prize. Start building today!'
                 },
                 {
                     'title': 'ETHIndia 2026 - Devfolio | Ethereum Foundation',
                     'link': 'https://devfolio.co/ethindia2026',
-                    'snippet': 'ETHIndia 2026 applications are open! India\'s largest Ethereum hackathon. 36-hour in-person event in Bangalore. Eligibility: Developers, designers, blockchain enthusiasts 18+. No prior blockchain experience needed. Mentorship from Ethereum Foundation. Event dates: March 14-16, 2026. Apply by: February 10, 2026.'
+                    'snippet': 'ETHIndia 2026 applications are open! India\'s largest Ethereum hackathon. 36-hour in-person event in Bangalore. Eligibility: Developers, designers, blockchain enthusiasts 18+. No prior blockchain experience needed. Mentorship from Ethereum Foundation. Event dates: March 14-16, 2026. Apply by: February 25, 2026.'
                 },
                 {
                     'title': 'MLH Season 2026 India Region - Major League Hacking',
                     'link': 'https://mlh.io/seasons/2026/events',
-                    'snippet': 'Major League Hacking Season 2026 India events starting! HackNITR (Jan 24-26), VITHack (Feb 7-9), HackOdisha (Feb 21-23), PesHack (Mar 7-9). Open to all students. Free participation, travel reimbursements available. Build projects in 24-36 hours. MLH swag, prizes, and networking. Register on individual event pages.'
+                    'snippet': 'Major League Hacking Season 2026 India events! HackNITR (Feb 24-26), VITHack (Mar 7-9), HackOdisha (Mar 21-23), PesHack (Apr 7-9). Open to all students. Free participation, travel reimbursements available. Build projects in 24-36 hours. MLH swag, prizes, and networking. Register now!'
                 },
                 {
-                    'title': 'TCS CodeVita Season 12 - Global Coding Contest | TCS',
-                    'link': 'https://unstop.com/competitions/tcs-codevita-season-12',
-                    'snippet': 'TCS CodeVita Season 12 is live! World\'s largest coding competition. Pre-Qualifier: January 15-20, 2026. Round 1: February 2026. Round 2: March 2026. Grand Finale: April 2026. Eligibility: Students graduating 2025/2026/2027, all branches. Individual participation. Cash prizes + job interview opportunities. Posted: January 2, 2026.'
+                    'title': 'Amazon ML Challenge 2026 | Amazon India Careers',
+                    'link': 'https://amazonmlchallenge.com/',
+                    'snippet': 'Amazon ML Challenge 2026 is live! Solve real-world machine learning problems. Eligibility: Engineering/MCA students, 2025-2027 graduates. Individual participation. Prizes: ₹1 Lakh + interview opportunity. Phase 1: February 1-28, 2026. Phase 2: March 2026. Winners announced April 2026. Apply now!'
+                },
+                {
+                    'title': 'Tata Innoverse 2026 - Innovation Challenge | Tata Group',
+                    'link': 'https://innoverse.tata.com/',
+                    'snippet': 'Tata Innoverse 2026 accepting entries! Pan-India innovation challenge for students and startups. Categories: Healthcare, Education, Sustainability, Smart Cities. Eligibility: Students 18+, startups < 3 years. Teams of 2-5. Prizes: ₹15 Lakhs + mentorship. Submission deadline: March 10, 2026. Submit your innovation!'
+                },
+                {
+                    'title': 'KIIT Hackathon 2026 - KiiT University | Unstop',
+                    'link': 'https://unstop.com/hackathons/kiit-hackathon-2026',
+                    'snippet': 'KIIT Hackathon 2026 registrations open! 48-hour mega hackathon at KIIT University, Bhubaneswar. Tracks: AI/ML, Blockchain, IoT, Web3. Eligibility: All college students across India. Teams of 3-4. Accommodation provided. Prizes worth ₹5 Lakhs. Event: February 28 - March 2, 2026. Register by: February 15, 2026.'
+                },
+                {
+                    'title': 'Code For Good 2026 - JP Morgan Chase | JPMC Careers',
+                    'link': 'https://careers.jpmorgan.com/codeforgood',
+                    'snippet': 'JP Morgan Code For Good 2026 applications open! 24-hour hackathon building tech solutions for non-profits. Eligibility: Engineering students graduating 2026/2027, all branches. Team formation at event. Cities: Mumbai, Bangalore, Hyderabad. Event dates: March 15-16, 2026. Apply by: February 20, 2026. Travel covered!'
+                },
+                {
+                    'title': 'IEEE Student Congress 2026 - International Conference',
+                    'link': 'https://ieee-student-congress.org/',
+                    'snippet': 'IEEE Student Congress 2026 call for papers! Submit research in Electronics, Computer Science, AI, IoT, Robotics. Eligibility: UG/PG students, IEEE members preferred. Paper submission: January 20 - March 1, 2026. Conference: April 12-14, 2026, IIT Delhi. Publish in IEEE Xplore. Early bird: February 15.'
                 }
             ]
         }

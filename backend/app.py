@@ -16,6 +16,7 @@ from services.firebase_service import FirebaseService
 from services.chatbot_service import ChatbotService
 from services.gamification_service import GamificationService
 from services.analytics_service import AnalyticsService
+from services.success_stories_service import SuccessStoriesService
 from services.auth_service import (
     register_user, 
     login_user, 
@@ -40,6 +41,7 @@ reasoning_service = ReasoningService(firebase_service)
 chatbot_service = ChatbotService()
 gamification_service = GamificationService(firebase_service)
 analytics_service = AnalyticsService(firebase_service)
+success_stories_service = SuccessStoriesService(firebase_service)
 
 # ============================================================================
 # AUTHENTICATION ENDPOINTS
@@ -663,10 +665,12 @@ def update_streak(user_id):
 
 @app.route('/api/gamification/leaderboard', methods=['GET'])
 def get_leaderboard():
-    """Get global leaderboard"""
+    """Get global leaderboard with top 10 + current user"""
     try:
-        limit = request.args.get('limit', 50, type=int)
-        result = gamification_service.get_leaderboard(limit)
+        user_id = request.args.get('user_id')  # Optional: to include current user
+        top_limit = request.args.get('top', 10, type=int)  # Top N users
+        
+        result = gamification_service.get_leaderboard_with_user(top_limit, user_id)
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -748,6 +752,53 @@ def info():
             ]
         }
     }), 200
+
+
+# ============================================================================
+# SUCCESS STORIES & PEER INSIGHTS ENDPOINTS
+# ============================================================================
+
+@app.route('/api/success-stories', methods=['GET'])
+def get_success_stories():
+    """Get inspiring success stories from peers"""
+    try:
+        user_id = request.args.get('user_id')
+        limit = int(request.args.get('limit', 5))
+        
+        stories = success_stories_service.get_success_stories(user_id, limit)
+        
+        return jsonify({
+            'success': True,
+            'stories': stories,
+            'count': len(stories)
+        }), 200
+    
+    except Exception as e:
+        print(f"Error fetching success stories: {str(e)}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/peer-insights', methods=['GET'])
+def get_peer_insights():
+    """Get peer comparison and growth insights for healthy competition"""
+    try:
+        user_id = request.args.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+        
+        insights = success_stories_service.get_peer_growth_insights(user_id)
+        
+        return jsonify({
+            'success': True,
+            'insights': insights
+        }), 200
+    
+    except Exception as e:
+        print(f"Error fetching peer insights: {str(e)}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 # ============================================================================

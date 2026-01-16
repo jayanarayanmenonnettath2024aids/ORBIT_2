@@ -62,7 +62,7 @@ def register_user(email, password, name):
 def login_user(email, password):
     """
     Login existing user
-    Returns: user data and session_token on success, None on failure
+    Returns: user data, streak info, and session_token on success
     """
     db = firestore.client()
     users_ref = db.collection('users')
@@ -76,16 +76,30 @@ def login_user(email, password):
     
     user_doc = users_list[0]
     user_data = user_doc.to_dict()
+    user_id = user_doc.id
     
     # Verify password
     password_hash = hash_password(password)
     if user_data['password_hash'] != password_hash:
         raise ValueError('Invalid email or password')
     
+    # Get gamification data for streak info
+    login_streak = 0
+    try:
+        gami_doc = db.collection('gamification').document(user_id).get()
+        if gami_doc.exists:
+            gami_data = gami_doc.to_dict()
+            login_streak = gami_data.get('login_streak', 0)
+            
+            # Update login streak (this would be done by gamification service on login)
+            # Just return current streak for now
+    except Exception as e:
+        print(f"Could not fetch streak: {e}")
+    
     # Create session
     session_token = generate_session_token()
     active_sessions[session_token] = {
-        'user_id': user_doc.id,
+        'user_id': user_id,
         'email': user_data['email'],
         'name': user_data.get('name', email.split('@')[0]),
         'profile_id': user_data.get('profile_id'),
@@ -93,11 +107,12 @@ def login_user(email, password):
     }
     
     return {
-        'user_id': user_doc.id,
+        'user_id': user_id,
         'email': user_data['email'],
         'name': user_data.get('name', email.split('@')[0]),
         'profile_id': user_data.get('profile_id'),
-        'session_token': session_token
+        'session_token': session_token,
+        'login_streak': login_streak
     }
 
 def verify_session(session_token):

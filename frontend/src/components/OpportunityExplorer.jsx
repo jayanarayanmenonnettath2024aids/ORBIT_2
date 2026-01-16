@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, ExternalLink, ChevronDown, ChevronUp, CheckCircle, AlertCircle, Clock, Bookmark } from 'lucide-react';
-import { searchOpportunities, analyzeEligibility } from '../services/api';
+import { searchOpportunities, analyzeEligibility, getPersonalizedSuggestions } from '../services/api';
+import { trackSearch, trackEligibilityCheck, trackSaveToTracker } from '../utils/gamification';
 
 function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -9,22 +10,50 @@ function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
   const [analyses, setAnalyses] = useState({});
   const [expandedOpp, setExpandedOpp] = useState(null);
   const [saving, setSaving] = useState({});
+  const [quickSearches, setQuickSearches] = useState(['AI hackathon', 'software internship', 'student fellowship', 'coding competition']);
+
+  // Fetch personalized suggestions when profile loads
+  useEffect(() => {
+    if (profile?.profile_id) {
+      getPersonalizedSuggestions(profile.profile_id)
+        .then(data => {
+          if (data.suggestions && data.suggestions.length > 0) {
+            // Take first 4-5 suggestions for quick search
+            setQuickSearches(data.suggestions.slice(0, 4));
+          }
+        })
+        .catch(err => {
+          console.log('Could not fetch personalized suggestions, using defaults:', err);
+        });
+    }
+  }, [profile?.profile_id]);
 
   const handleSaveToTracker = async (opportunity) => {
     const oppId = opportunity.opportunity_id;
     setSaving(prev => ({ ...prev, [oppId]: true }));
     
     try {
-      // Get userId from multiple sources
-      const userId = localStorage.getItem('userId') || 
-                     profile?.profile_id || 
-                     profile?.user_id;
+      // Get userId - prefer localStorage, but fallback to profile if needed
+      // This ensures consistency across the app
+      let userId = localStorage.getItem('user_id');
+      
+      // If no user_id in localStorage, check if we have profile data
+      if (!userId && profile) {
+        // Use profile.user_id if available, otherwise profile_id
+        userId = profile.user_id || profile.profile_id;
+        // Store it in localStorage for future use
+        if (userId) {
+          localStorage.setItem('user_id', userId);
+        }
+      }
       
       if (!userId) {
         alert('❌ Please log in to save opportunities');
         setSaving(prev => ({ ...prev, [oppId]: false }));
         return;
       }
+      
+      console.log('💾 Saving with user_id:', userId);
       
       const analysis = analyses[oppId];
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -75,6 +104,9 @@ function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
       if (response.ok) {
         console.log('✅ Saved successfully:', data);
         alert('✅ Saved to Application Tracker! Check the tracker tab.');
+        
+        // Track save to tracker for gamification
+        trackSaveToTracker(oppId, opportunity.title);
       } else {
         console.error('❌ Save failed:', data);
         throw new Error(data.error || `Server error: ${response.status}`);
@@ -101,6 +133,9 @@ function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
     try {
       const result = await searchOpportunities(searchQuery);
       setOpportunities(result.opportunities);
+      
+      // Track search action for gamification
+      trackSearch(searchQuery);
     } catch (err) {
       console.error('Search failed:', err);
       alert('Failed to search opportunities');
@@ -118,6 +153,11 @@ function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
         ...prev,
         [opportunityId]: result
       }));
+      
+      // Track eligibility check for gamification
+      if (result?.eligibility_score !== undefined) {
+        trackEligibilityCheck(opportunityId, result.eligibility_score);
+      }
     } catch (err) {
       console.error('Analysis failed:', err);
       console.error('Error details:', err.response?.data);
@@ -177,7 +217,7 @@ function OpportunityExplorer({ profile, opportunities, setOpportunities }) {
       {/* Quick Search Suggestions */}
       <div className="quick-searches">
         <span className="label">Quick searches:</span>
-        {['AI hackathon', 'software internship', 'student fellowship', 'coding competition'].map(term => (
+        {quickSearches.map(term => (
           <button
             key={term}
             className="quick-search-btn"

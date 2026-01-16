@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './ApplicationTracker.css';
+import { trackStatusUpdate } from '../utils/gamification';
 
 function ApplicationTracker({ userId }) {
   const [applications, setApplications] = useState([]);
@@ -18,7 +19,8 @@ function ApplicationTracker({ userId }) {
   const fetchApplications = async () => {
     setLoading(true);
     try {
-      console.log('Fetching applications for userId:', userId);
+      console.log('📋 ApplicationTracker - Fetching for userId:', userId);
+      console.log('📋 localStorage user_id:', localStorage.getItem('user_id'));
       const apiUrl = import.meta.env.VITE_API_URL;
       console.log('API URL:', apiUrl);
       
@@ -62,6 +64,9 @@ function ApplicationTracker({ userId }) {
         body: JSON.stringify({ status: newStatus })
       });
       fetchApplications();
+      
+      // Track status update for gamification
+      trackStatusUpdate(appId, newStatus);
     } catch (error) {
       console.error('Error updating application:', error);
     }
